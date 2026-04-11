@@ -26,6 +26,8 @@ cd spool
 # 1. Start the database
 docker compose up -d
 
+#docker-compose up -d  
+
 # 2. Install Python backend
 python3 -m venv .venv
 source .venv/bin/activate
