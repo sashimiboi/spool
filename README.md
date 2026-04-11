@@ -2,7 +2,7 @@
 
 Local session tracker and semantic search for AI coding assistants.
 
-Track your Claude Code sessions (and eventually Codex, Copilot, Cursor, Windsurf) with usage stats, cost estimates, semantic search via pgvector, and a built-in AI chat agent to explore your history.
+Track your AI coding sessions across **Claude Code**, **OpenAI Codex CLI**, **GitHub Copilot**, **Cursor**, and **Windsurf** — all in one place. Get usage stats, cost estimates, per-provider breakdowns, semantic search via pgvector, and a built-in AI chat agent to explore your history.
 
 **Website:** [spooling.ai](https://spooling.ai)
 
@@ -24,7 +24,7 @@ git clone <repo-url> spool
 cd spool
 
 # 1. Start the database
-docker compose up -d
+docker-compose up -d   # or `docker compose up -d` if using Docker Compose V2
 
 #docker-compose up -d  
 
@@ -33,13 +33,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# 3. Sync your Claude Code sessions
-spool sync
+# 3. Check which providers are detected
+spool init
 
-# 4. Install UI dependencies
+# 4. Sync sessions from all detected providers
+spool sync              # with embeddings (slower, enables semantic search)
+spool sync --no-embed   # without embeddings (faster, for initial setup)
+
+# 5. Install UI dependencies
 cd ui && npm install && cd ..
 
-# 5. Start everything
+# 6. Start everything
 spool serve &       # API on http://127.0.0.1:3002
 cd ui && npm run dev # UI on http://localhost:3003
 ```
@@ -58,7 +62,7 @@ source .venv/bin/activate
 
 ### `spool init`
 
-Check database connection and detect Claude Code sessions.
+Check database connection and show which AI coding tool providers are detected on your system. This scans default paths for Claude Code, Codex CLI, GitHub Copilot, Cursor, and Windsurf session data.
 
 ```bash
 spool init
@@ -66,11 +70,13 @@ spool init
 
 ### `spool sync`
 
-Parse and ingest all Claude Code sessions into the database. Chunks and embeds message content into pgvector for semantic search.
+Parse and ingest sessions from all connected providers into the database. Chunks and embeds message content into pgvector for semantic search.
 
 ```bash
-spool sync              # Full sync with embeddings
-spool sync --no-embed   # Skip embeddings (faster)
+spool sync                      # Full sync with embeddings
+spool sync --no-embed           # Skip embeddings (faster initial sync)
+spool sync -p claude-code       # Sync only Claude Code sessions
+spool sync -p codex             # Sync only Codex CLI sessions
 ```
 
 ### `spool stats`
@@ -99,7 +105,7 @@ Options:
 
 ### `spool watch`
 
-Watch the Claude Code directory for new session data and auto-sync in real time.
+Watch all connected provider directories for new session data and auto-sync in real time.
 
 ```bash
 spool watch
@@ -131,10 +137,10 @@ The web dashboard runs on **http://localhost:3003** and includes:
 
 | Page | Description |
 |------|-------------|
-| **Dashboard** | Overview stats, daily activity chart, projects, top tools, recent sessions |
-| **Sessions** | Browse all sessions with filtering, click into any session for full conversation view |
+| **Dashboard** | Overview stats, per-provider breakdown, daily activity chart, projects, top tools, recent sessions |
+| **Sessions** | Browse all sessions with provider labels, filtering, click into any session for full conversation view |
 | **Search** | Semantic search across all session history with similarity scores |
-| **Analytics** | Charts for daily usage, cost trends, token usage, tool distribution (AG Charts) |
+| **Analytics** | Charts for daily usage, cost trends, token usage, tool distribution — filterable by provider (AG Charts) |
 | **Chat** | AI assistant that can answer questions about your session data (RAG-powered) |
 | **Connections** | Connect/disconnect AI coding tools (Claude Code, Codex, Copilot, Cursor, Windsurf) |
 | **Settings** | Configure the AI chat provider (Ollama or Anthropic) |
@@ -193,6 +199,7 @@ spool/
 │   ├── cli.py               # Click CLI
 │   ├── config.py            # Configuration
 │   ├── db.py                # Database connection
+│   ├── providers/           # Provider plugins (claude_code, codex, copilot, cursor, windsurf)
 │   ├── parser.py            # Claude Code JSONL parser
 │   ├── embeddings.py        # sentence-transformers (all-MiniLM-L6-v2)
 │   ├── ingest.py            # Sync pipeline
@@ -246,8 +253,16 @@ All optional - defaults work out of the box for local development.
 
 ---
 
-## Data Sources
+## Supported Providers
 
-Spool reads Claude Code session data from `~/.claude/projects/`. Each session is a UUID-named JSONL file containing the full conversation history with timestamps, tool calls, git context, and file changes.
+| Provider | Data Location | Format |
+|----------|--------------|--------|
+| **Claude Code** | `~/.claude/projects/` | UUID-named JSONL files with conversation history, tool calls, git context |
+| **OpenAI Codex CLI** | `~/.codex/sessions/` | `rollout-*.jsonl` files organized by date |
+| **GitHub Copilot** | `~/Library/Application Support/Code/User/workspaceStorage/` | Chat session JSON from VS Code |
+| **Cursor** | `~/Library/Application Support/Cursor/User/workspaceStorage/` | Chat and composer sessions from SQLite |
+| **Windsurf** | `~/Library/Application Support/Windsurf/User/workspaceStorage/` | Chat and Cascade sessions from SQLite |
+
+Run `spool init` to see which providers are detected on your system.
 
 No data is sent to external servers. Everything runs locally.

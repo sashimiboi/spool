@@ -10,6 +10,7 @@ import { fetchApi, formatNumber, formatCost, formatDate, cleanProject } from '@/
 
 interface Session {
   id: string;
+  provider_id: string;
   project: string;
   title: string;
   started_at: string;
@@ -19,6 +20,14 @@ interface Session {
   git_branch: string;
   cwd: string;
 }
+
+const PROVIDER_LABELS: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  'codex': 'Codex CLI',
+  'copilot': 'Copilot',
+  'cursor': 'Cursor',
+  'windsurf': 'Windsurf',
+};
 
 interface SessionDetail {
   session: Session & { estimated_input_tokens: number; estimated_output_tokens: number };
@@ -159,14 +168,14 @@ export default function SessionsPage() {
 
       <div className="rounded-lg border bg-card overflow-hidden">
         {/* Header */}
-        <div className="grid grid-cols-[2fr_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          <span>Session</span><span>Project</span><span>Msgs</span><span>Tools</span><span>Cost</span>
+        <div className="grid grid-cols-[2fr_80px_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          <span>Session</span><span>Provider</span><span>Project</span><span>Msgs</span><span>Tools</span><span>Cost</span>
         </div>
         {filtered.map((s) => (
           <div
             key={s.id}
             onClick={() => openSession(s.id)}
-            className="grid grid-cols-[2fr_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b last:border-0 cursor-pointer hover:bg-accent/50 transition-colors"
+            className="grid grid-cols-[2fr_80px_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b last:border-0 cursor-pointer hover:bg-accent/50 transition-colors"
           >
             <div>
               <div className="text-[13px] font-medium truncate">{(s.title || 'Untitled').slice(0, 60)}</div>
@@ -176,6 +185,9 @@ export default function SessionsPage() {
                 {s.git_branch && <span className="text-muted-foreground/60">{s.git_branch}</span>}
               </div>
             </div>
+            <span className="text-[11px] text-muted-foreground self-center">
+              <Badge variant="outline" className="text-[10px]">{PROVIDER_LABELS[s.provider_id] || s.provider_id}</Badge>
+            </span>
             <span className="text-[13px] text-muted-foreground truncate self-center">{cleanProject(s.project || '')}</span>
             <span className="text-[13px] self-center tabular-nums">{s.message_count}</span>
             <span className="text-[13px] self-center tabular-nums">{s.tool_call_count}</span>

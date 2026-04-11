@@ -5,12 +5,14 @@ from datetime import datetime, timedelta, timezone
 from spool.db import get_connection
 
 
-def get_overview() -> dict:
-    """Get high-level usage stats."""
+def get_overview(provider: str | None = None) -> dict:
+    """Get high-level usage stats, optionally filtered by provider."""
     conn = get_connection()
+    where = "WHERE provider_id = %s" if provider else ""
+    params: tuple = (provider,) if provider else ()
 
     summary = conn.execute(
-        """SELECT
+        f"""SELECT
            COUNT(*) AS total_sessions,
            COALESCE(SUM(message_count), 0) AS total_messages,
            COALESCE(SUM(tool_call_count), 0) AS total_tool_calls,
@@ -19,27 +21,36 @@ def get_overview() -> dict:
            COALESCE(SUM(estimated_cost_usd), 0) AS total_cost_usd,
            MIN(started_at) AS earliest_session,
            MAX(ended_at) AS latest_session
-        FROM sessions"""
+        FROM sessions {where}""",
+        params,
     ).fetchone()
 
     # Sessions per project
     projects = conn.execute(
-        """SELECT project, COUNT(*) AS sessions, SUM(message_count) AS messages,
+        f"""SELECT project, COUNT(*) AS sessions, SUM(message_count) AS messages,
                   SUM(estimated_cost_usd) AS cost
-           FROM sessions GROUP BY project ORDER BY sessions DESC LIMIT 20"""
+           FROM sessions {where} GROUP BY project ORDER BY sessions DESC LIMIT 20""",
+        params,
     ).fetchall()
 
     # Top tools
+    tool_where = (
+        "WHERE tc.session_id IN (SELECT id FROM sessions WHERE provider_id = %s)"
+        if provider else ""
+    )
     top_tools = conn.execute(
-        """SELECT tool_name, COUNT(*) AS uses
-           FROM tool_calls GROUP BY tool_name ORDER BY uses DESC LIMIT 15"""
+        f"""SELECT tc.tool_name, COUNT(*) AS uses
+           FROM tool_calls tc {tool_where}
+           GROUP BY tc.tool_name ORDER BY uses DESC LIMIT 15""",
+        params,
     ).fetchall()
 
     # Recent sessions
     recent = conn.execute(
-        """SELECT id, project, title, started_at, message_count,
+        f"""SELECT id, provider_id, project, title, started_at, message_count,
                   estimated_cost_usd, claude_version
-           FROM sessions ORDER BY started_at DESC LIMIT 10"""
+           FROM sessions {where} ORDER BY started_at DESC LIMIT 10""",
+        params,
     ).fetchall()
 
     conn.close()
@@ -52,24 +63,60 @@ def get_overview() -> dict:
     }
 
 
-def get_daily_stats(days: int = 7) -> list[dict]:
-    """Get daily usage breakdown."""
+def get_provider_breakdown() -> list[dict]:
+    """Get usage stats grouped by provider."""
     conn = get_connection()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
     rows = conn.execute(
-        """SELECT DATE(started_at) AS day,
+        """SELECT provider_id,
                   COUNT(*) AS sessions,
                   COALESCE(SUM(message_count), 0) AS messages,
                   COALESCE(SUM(tool_call_count), 0) AS tool_calls,
-                  COALESCE(SUM(estimated_input_tokens + estimated_output_tokens), 0) AS total_tokens,
-                  COALESCE(SUM(estimated_cost_usd), 0) AS cost
+                  COALESCE(SUM(estimated_input_tokens), 0) AS input_tokens,
+                  COALESCE(SUM(estimated_output_tokens), 0) AS output_tokens,
+                  COALESCE(SUM(estimated_cost_usd), 0) AS cost,
+                  MIN(started_at) AS first_session,
+                  MAX(started_at) AS last_session
            FROM sessions
-           WHERE started_at >= %s
-           GROUP BY DATE(started_at)
-           ORDER BY day""",
-        (cutoff,),
+           GROUP BY provider_id
+           ORDER BY sessions DESC"""
     ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_daily_stats(days: int = 7, provider: str | None = None) -> list[dict]:
+    """Get daily usage breakdown, optionally filtered by provider."""
+    conn = get_connection()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    if provider:
+        rows = conn.execute(
+            """SELECT DATE(started_at) AS day,
+                      COUNT(*) AS sessions,
+                      COALESCE(SUM(message_count), 0) AS messages,
+                      COALESCE(SUM(tool_call_count), 0) AS tool_calls,
+                      COALESCE(SUM(estimated_input_tokens + estimated_output_tokens), 0) AS total_tokens,
+                      COALESCE(SUM(estimated_cost_usd), 0) AS cost
+               FROM sessions
+               WHERE started_at >= %s AND provider_id = %s
+               GROUP BY DATE(started_at)
+               ORDER BY day""",
+            (cutoff, provider),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT DATE(started_at) AS day,
+                      COUNT(*) AS sessions,
+                      COALESCE(SUM(message_count), 0) AS messages,
+                      COALESCE(SUM(tool_call_count), 0) AS tool_calls,
+                      COALESCE(SUM(estimated_input_tokens + estimated_output_tokens), 0) AS total_tokens,
+                      COALESCE(SUM(estimated_cost_usd), 0) AS cost
+               FROM sessions
+               WHERE started_at >= %s
+               GROUP BY DATE(started_at)
+               ORDER BY day""",
+            (cutoff,),
+        ).fetchall()
 
     conn.close()
     return [dict(r) for r in rows]

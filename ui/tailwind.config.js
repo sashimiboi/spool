@@ -3,6 +3,9 @@ module.exports = {
   darkMode: 'class',
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
+    fontFamily: {
+      sans: ['var(--font-montserrat)', 'system-ui', 'sans-serif'],
+    },
     extend: {
       colors: {
         border: 'hsl(var(--border))',

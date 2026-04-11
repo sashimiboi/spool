@@ -4,7 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from spool.stats import get_overview, get_daily_stats, get_session_detail
+from spool.stats import get_overview, get_daily_stats, get_session_detail, get_provider_breakdown
 from spool.search import search as do_search
 from spool.db import get_connection
 
@@ -22,13 +22,18 @@ app.add_middleware(
 # --- Overview / Stats ---
 
 @app.get("/api/overview")
-async def api_overview():
-    return get_overview()
+async def api_overview(provider: str | None = Query(default=None)):
+    return get_overview(provider=provider)
 
 
 @app.get("/api/daily")
-async def api_daily(days: int = Query(default=14)):
-    return get_daily_stats(days=days)
+async def api_daily(days: int = Query(default=14), provider: str | None = Query(default=None)):
+    return get_daily_stats(days=days, provider=provider)
+
+
+@app.get("/api/stats/providers")
+async def api_provider_breakdown():
+    return get_provider_breakdown()
 
 
 @app.get("/api/sessions")
@@ -205,14 +210,25 @@ async def api_delete_provider(provider_id: str):
 # --- Tool usage breakdown ---
 
 @app.get("/api/tools")
-async def api_tools(limit: int = Query(default=20)):
+async def api_tools(limit: int = Query(default=20), provider: str | None = Query(default=None)):
     conn = get_connection()
-    rows = conn.execute(
-        """SELECT tool_name, COUNT(*) AS uses,
-                  COUNT(DISTINCT session_id) AS sessions
-           FROM tool_calls GROUP BY tool_name ORDER BY uses DESC LIMIT %s""",
-        (limit,),
-    ).fetchall()
+    if provider:
+        rows = conn.execute(
+            """SELECT tc.tool_name, COUNT(*) AS uses,
+                      COUNT(DISTINCT tc.session_id) AS sessions
+               FROM tool_calls tc
+               JOIN sessions s ON s.id = tc.session_id
+               WHERE s.provider_id = %s
+               GROUP BY tc.tool_name ORDER BY uses DESC LIMIT %s""",
+            (provider, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT tool_name, COUNT(*) AS uses,
+                      COUNT(DISTINCT session_id) AS sessions
+               FROM tool_calls GROUP BY tool_name ORDER BY uses DESC LIMIT %s""",
+            (limit,),
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
