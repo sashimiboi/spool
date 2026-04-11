@@ -1,0 +1,31 @@
+"""Multi-provider support for Spool."""
+
+from spool.providers.base import Provider, PROVIDER_REGISTRY
+from spool.providers.claude_code import ClaudeCodeProvider
+from spool.providers.codex import CodexProvider
+from spool.providers.cursor import CursorProvider
+from spool.providers.copilot import CopilotProvider
+from spool.providers.windsurf import WindsurfProvider
+
+__all__ = [
+    "Provider",
+    "PROVIDER_REGISTRY",
+    "ClaudeCodeProvider",
+    "CodexProvider",
+    "CursorProvider",
+    "CopilotProvider",
+    "WindsurfProvider",
+]
+
+
+def get_provider(provider_type: str) -> Provider | None:
+    """Get a provider instance by type ID."""
+    cls = PROVIDER_REGISTRY.get(provider_type)
+    if cls:
+        return cls()
+    return None
+
+
+def get_all_providers() -> dict[str, Provider]:
+    """Get instances of all registered providers."""
+    return {type_id: cls() for type_id, cls in PROVIDER_REGISTRY.items()}

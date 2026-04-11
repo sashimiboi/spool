@@ -33,6 +33,7 @@ class ParsedSession:
     claude_version: str | None = None
     model: str | None = None
     title: str | None = None
+    provider_id: str = "claude-code"
 
     @property
     def message_count(self) -> int:

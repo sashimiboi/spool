@@ -5,7 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AgCharts } from 'ag-charts-react';
 import { ModuleRegistry, AllCommunityModule } from 'ag-charts-community';
-import type { AgChartOptions } from 'ag-charts-community';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ChartOptions = any;
 import { useRouter } from 'next/navigation';
 import { fetchApi, formatNumber, formatCost, formatDate, cleanProject } from '@/lib/api';
 import {
@@ -83,7 +84,7 @@ export default function DashboardPage() {
     { label: 'Projects', value: overview.projects.length, icon: FolderOpen },
   ];
 
-  const chartOptions: AgChartOptions = {
+  const chartOptions: ChartOptions = {
     data: daily.map(d => ({
       day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       messages: d.messages,

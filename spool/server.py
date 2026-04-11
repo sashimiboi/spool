@@ -87,29 +87,29 @@ PROVIDER_TEMPLATES = {
         "name": "OpenAI Codex CLI",
         "icon": "openai",
         "default_path": "~/.codex/sessions",
-        "description": "OpenAI's coding agent CLI. Session data stored locally.",
-        "status_hint": "Point to your Codex session directory.",
+        "description": "OpenAI's coding agent CLI. JSONL session logs organized by date.",
+        "status_hint": "Auto-detected from ~/.codex/sessions/",
     },
     "copilot": {
         "name": "GitHub Copilot",
         "icon": "github",
-        "default_path": "~/.config/github-copilot",
-        "description": "GitHub Copilot chat and completions. Requires VS Code log export.",
-        "status_hint": "Connect via VS Code extension logs.",
+        "default_path": "~/Library/Application Support/Code/User/workspaceStorage",
+        "description": "GitHub Copilot Chat sessions from VS Code. Reads chatSessions per workspace.",
+        "status_hint": "Auto-detected from VS Code workspaceStorage.",
     },
     "cursor": {
         "name": "Cursor",
         "icon": "cursor",
-        "default_path": "~/.cursor/sessions",
-        "description": "Cursor AI editor sessions. Tracks composer and chat interactions.",
-        "status_hint": "Point to your Cursor data directory.",
+        "default_path": "~/Library/Application Support/Cursor/User/workspaceStorage",
+        "description": "Cursor AI editor. Tracks chat and composer/agent interactions from SQLite.",
+        "status_hint": "Auto-detected from Cursor Application Support.",
     },
     "windsurf": {
         "name": "Windsurf",
         "icon": "windsurf",
-        "default_path": "~/.windsurf/sessions",
-        "description": "Codeium's Windsurf editor. Tracks Cascade agent sessions.",
-        "status_hint": "Point to your Windsurf data directory.",
+        "default_path": "~/Library/Application Support/Windsurf/User/workspaceStorage",
+        "description": "Codeium's Windsurf editor. Tracks chat and Cascade agent sessions from SQLite.",
+        "status_hint": "Auto-detected from Windsurf Application Support.",
     },
 }
 
@@ -138,13 +138,19 @@ async def api_providers():
 @app.get("/api/providers/available")
 async def api_available_providers():
     """Get all available provider types that can be connected."""
+    from spool.providers import get_all_providers
+
     conn = get_connection()
     existing = conn.execute("SELECT type FROM providers WHERE status = 'connected'").fetchall()
     conn.close()
     existing_types = {r["type"] for r in existing}
 
+    all_providers = get_all_providers()
     available = []
     for type_id, tmpl in PROVIDER_TEMPLATES.items():
+        provider = all_providers.get(type_id)
+        detected = provider.is_available() if provider else False
+        file_count = len(provider.discover_session_files()) if (provider and detected) else 0
         available.append({
             "type": type_id,
             "name": tmpl["name"],
@@ -152,6 +158,8 @@ async def api_available_providers():
             "default_path": tmpl["default_path"],
             "description": tmpl["description"],
             "connected": type_id in existing_types,
+            "detected": detected,
+            "file_count": file_count,
         })
     return available
 

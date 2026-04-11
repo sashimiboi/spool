@@ -1,4 +1,4 @@
-"""Ingestion pipeline - parse Claude Code sessions and store in pgvector."""
+"""Ingestion pipeline - parse AI coding sessions from multiple providers and store in pgvector."""
 
 from pathlib import Path
 
@@ -7,8 +7,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from spool.config import MODEL_PRICING, DEFAULT_PRICING
 from spool.db import get_connection
-from spool.parser import ParsedSession, discover_session_files, parse_session_file
+from spool.parser import ParsedSession
 from spool.embeddings import embed_texts, chunk_text
+from spool.providers import get_provider, get_all_providers
 
 console = Console()
 
@@ -24,11 +25,11 @@ def _get_synced_files(conn) -> dict[str, int]:
     return {r["file_path"]: r["last_size"] for r in rows}
 
 
-def _mark_synced(conn, file_path: str, size: int):
+def _mark_synced(conn, file_path: str, size: int, provider_id: str = "claude-code"):
     conn.execute(
-        "INSERT INTO sync_state (file_path, last_size) VALUES (%s, %s) "
-        "ON CONFLICT (file_path) DO UPDATE SET last_size = %s, last_synced_at = now()",
-        (file_path, size, size),
+        "INSERT INTO sync_state (file_path, last_size, provider_id) VALUES (%s, %s, %s) "
+        "ON CONFLICT (file_path) DO UPDATE SET last_size = %s, provider_id = %s, last_synced_at = now()",
+        (file_path, size, provider_id, size, provider_id),
     )
 
 
@@ -41,11 +42,12 @@ def _store_session(conn, session: ParsedSession):
     )
 
     conn.execute(
-        """INSERT INTO sessions (id, project, cwd, git_branch, started_at, ended_at,
+        """INSERT INTO sessions (id, provider_id, project, cwd, git_branch, started_at, ended_at,
            message_count, tool_call_count, estimated_input_tokens, estimated_output_tokens,
            estimated_cost_usd, claude_version, model, title)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
            ON CONFLICT (id) DO UPDATE SET
+           provider_id = EXCLUDED.provider_id,
            message_count = EXCLUDED.message_count,
            tool_call_count = EXCLUDED.tool_call_count,
            estimated_input_tokens = EXCLUDED.estimated_input_tokens,
@@ -54,8 +56,8 @@ def _store_session(conn, session: ParsedSession):
            ended_at = EXCLUDED.ended_at,
            title = EXCLUDED.title""",
         (
-            session.session_id, session.project, session.cwd, session.git_branch,
-            session.started_at, session.ended_at, session.message_count,
+            session.session_id, session.provider_id, session.project, session.cwd,
+            session.git_branch, session.started_at, session.ended_at, session.message_count,
             session.tool_call_count, session.estimated_input_tokens,
             session.estimated_output_tokens, cost, session.claude_version,
             session.model, session.title,
@@ -130,73 +132,124 @@ def _embed_session(conn, session: ParsedSession):
     return len(all_chunks)
 
 
-def sync(embed: bool = True):
-    """Sync all Claude Code sessions to the database."""
-    files = discover_session_files()
-    if not files:
-        console.print("[yellow]No Claude Code session files found.[/yellow]")
-        return
+def _get_connected_providers(conn) -> list[dict]:
+    """Get all connected providers from the database."""
+    rows = conn.execute(
+        "SELECT id, type, data_path FROM providers WHERE status = 'connected' AND type != 'agent'"
+    ).fetchall()
+    return [dict(r) for r in rows]
 
+
+def sync(embed: bool = True, provider_filter: str | None = None):
+    """Sync sessions from all connected providers to the database."""
     conn = get_connection()
+    connected = _get_connected_providers(conn)
+
+    if provider_filter:
+        connected = [p for p in connected if p["type"] == provider_filter]
+
+    if not connected:
+        console.print("[yellow]No connected providers found. Connect one via the UI or run 'spool sync' after connecting Claude Code.[/yellow]")
+        # Fall back to Claude Code if it's not in the DB yet but data exists
+        from spool.providers.claude_code import ClaudeCodeProvider
+        cc = ClaudeCodeProvider()
+        if cc.is_available():
+            connected = [{"id": "claude-code", "type": "claude-code", "data_path": str(cc.default_data_path())}]
+        else:
+            conn.close()
+            return
+
     synced = _get_synced_files(conn)
+    grand_total_sessions = 0
+    grand_total_messages = 0
+    grand_total_chunks = 0
 
-    # Filter to new or changed files
-    to_process = []
-    for f in files:
-        size = f.stat().st_size
-        if str(f) not in synced or synced[str(f)] != size:
-            to_process.append(f)
+    for prov_info in connected:
+        provider = get_provider(prov_info["type"])
+        if not provider:
+            console.print(f"[yellow]Unknown provider type: {prov_info['type']}[/yellow]")
+            continue
 
-    if not to_process:
-        console.print("[green]All sessions already synced.[/green]")
-        conn.close()
-        return
+        # Use custom data_path if set, otherwise default
+        data_path = None
+        if prov_info.get("data_path"):
+            expanded = Path(prov_info["data_path"]).expanduser()
+            if expanded.exists():
+                data_path = expanded
 
-    console.print(f"Found [bold]{len(to_process)}[/bold] new/updated session files to sync.")
+        files = provider.discover_session_files(data_path)
+        if not files:
+            continue
 
-    total_messages = 0
-    total_chunks = 0
-    total_sessions = 0
+        # Filter to new or changed files
+        to_process = []
+        for f in files:
+            size = f.stat().st_size
+            if str(f) not in synced or synced[str(f)] != size:
+                to_process.append(f)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Syncing sessions...", total=len(to_process))
+        if not to_process:
+            continue
 
-        for f in to_process:
-            session = parse_session_file(f)
-            if session is None:
+        console.print(
+            f"[bold]{provider.name}:[/bold] Found {len(to_process)} new/updated session files."
+        )
+
+        total_messages = 0
+        total_chunks = 0
+        total_sessions = 0
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Syncing {provider.name}...", total=len(to_process))
+
+            for f in to_process:
+                sessions = provider.parse_session_file(f)
+                for session in sessions:
+                    _store_session(conn, session)
+                    total_messages += session.message_count
+                    total_sessions += 1
+
+                    if embed:
+                        chunks = _embed_session(conn, session)
+                        total_chunks += chunks
+
+                _mark_synced(conn, str(f), f.stat().st_size, prov_info["type"])
+                conn.commit()
                 progress.advance(task)
-                continue
 
-            _store_session(conn, session)
-            total_messages += session.message_count
-            total_sessions += 1
+        # Update provider stats
+        conn.execute(
+            """UPDATE providers SET
+               session_count = (SELECT COUNT(*) FROM sessions WHERE provider_id = %s),
+               last_synced_at = now()
+               WHERE id = %s""",
+            (prov_info["id"], prov_info["id"]),
+        )
+        conn.commit()
 
-            if embed:
-                chunks = _embed_session(conn, session)
-                total_chunks += chunks
+        grand_total_sessions += total_sessions
+        grand_total_messages += total_messages
+        grand_total_chunks += total_chunks
 
-            _mark_synced(conn, str(f), f.stat().st_size)
-            conn.commit()
-            progress.advance(task)
+        console.print(
+            f"  [green]Synced {total_sessions} sessions, "
+            f"{total_messages} messages, "
+            f"{total_chunks} chunks embedded.[/green]"
+        )
 
-    # Update provider session_count and last_synced_at
-    conn.execute(
-        """UPDATE providers SET
-           session_count = (SELECT COUNT(*) FROM sessions WHERE provider_id = 'claude-code'),
-           last_synced_at = now()
-           WHERE id = 'claude-code'"""
-    )
-    conn.commit()
     conn.close()
 
-    console.print(
-        f"\n[green]Synced {total_sessions} sessions, "
-        f"{total_messages} messages, "
-        f"{total_chunks} chunks embedded.[/green]"
-    )
+    if grand_total_sessions == 0:
+        console.print("[green]All sessions already synced.[/green]")
+    else:
+        console.print(
+            f"\n[green]Total: {grand_total_sessions} sessions, "
+            f"{grand_total_messages} messages, "
+            f"{grand_total_chunks} chunks embedded.[/green]"
+        )

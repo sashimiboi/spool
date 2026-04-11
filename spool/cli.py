@@ -1,4 +1,4 @@
-"""Spool CLI - track and search your Claude Code sessions."""
+"""Spool CLI - track and search your AI coding assistant sessions."""
 
 import click
 from rich.console import Console
@@ -17,9 +17,10 @@ def cli():
 
 @cli.command()
 def init():
-    """Check database connection and show status."""
+    """Check database connection and show provider status."""
     from spool.db import check_db
-    from spool.config import DATABASE_URL, CLAUDE_PROJECTS_DIR
+    from spool.config import DATABASE_URL
+    from spool.providers import get_all_providers
 
     console.print(Panel("[bold]Spool[/bold] - Session Tracker", style="blue"))
 
@@ -27,28 +28,37 @@ def init():
     if check_db():
         console.print("[green]Database connected[/green]")
     else:
-        console.print(f"[red]Cannot connect to database.[/red]")
+        console.print("[red]Cannot connect to database.[/red]")
         console.print(f"  URL: {DATABASE_URL}")
         console.print("  Run: [bold]docker compose up -d[/bold]")
         return
 
-    # Check Claude dir
-    if CLAUDE_PROJECTS_DIR.exists():
-        from spool.parser import discover_session_files
-        files = discover_session_files()
-        console.print(f"[green]Found {len(files)} Claude Code session files[/green]")
-    else:
-        console.print("[yellow]No Claude Code projects directory found[/yellow]")
+    # Check all providers
+    providers = get_all_providers()
+    table = Table(show_lines=False, title="Providers")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Status")
+    table.add_column("Path", style="dim")
 
-    console.print("\nRun [bold]spool sync[/bold] to ingest sessions.")
+    for type_id, provider in providers.items():
+        available = provider.is_available()
+        status = "[green]available[/green]" if available else "[dim]not found[/dim]"
+        if available:
+            files = provider.discover_session_files()
+            status = f"[green]{len(files)} session files[/green]"
+        table.add_row(provider.name, status, str(provider.default_data_path()))
+
+    console.print(table)
+    console.print("\nRun [bold]spool sync[/bold] to ingest sessions from all available providers.")
 
 
 @cli.command()
 @click.option("--no-embed", is_flag=True, help="Skip embedding (faster sync)")
-def sync(no_embed):
-    """Sync Claude Code sessions to the database."""
+@click.option("--provider", "-p", default=None, help="Only sync a specific provider (claude-code, codex, cursor, copilot, windsurf)")
+def sync(no_embed, provider):
+    """Sync AI coding sessions to the database."""
     from spool.ingest import sync as do_sync
-    do_sync(embed=not no_embed)
+    do_sync(embed=not no_embed, provider_filter=provider)
 
 
 @cli.command()

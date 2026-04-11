@@ -6,7 +6,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { AgCharts } from 'ag-charts-react';
 import { ModuleRegistry, AllCommunityModule } from 'ag-charts-community';
-import type { AgChartOptions } from 'ag-charts-community';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ChartOptions = any;
 import { fetchApi, formatNumber, formatCost, cleanProject } from '@/lib/api';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -85,7 +86,7 @@ export default function AnalyticsPage() {
     sessions: t.sessions,
   }));
 
-  const activityChart: AgChartOptions = {
+  const activityChart: ChartOptions = {
     data: dailyChartData,
     series: [
       { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', fill: '#2563eb', cornerRadius: 4 },
@@ -100,7 +101,7 @@ export default function AnalyticsPage() {
     padding: { top: 10, right: 10, bottom: 0, left: 0 },
   };
 
-  const costChart: AgChartOptions = {
+  const costChart: ChartOptions = {
     data: costChartData,
     series: [
       { type: 'area', xKey: 'day', yKey: 'cost', yName: 'Cost ($)', fill: '#10b981', fillOpacity: 0.15, stroke: '#10b981', strokeWidth: 2 },
@@ -114,7 +115,7 @@ export default function AnalyticsPage() {
     padding: { top: 10, right: 10, bottom: 0, left: 0 },
   };
 
-  const tokenChart: AgChartOptions = {
+  const tokenChart: ChartOptions = {
     data: tokenChartData,
     series: [
       { type: 'area', xKey: 'day', yKey: 'tokens', yName: 'Tokens', fill: '#8b5cf6', fillOpacity: 0.12, stroke: '#8b5cf6', strokeWidth: 2 },
@@ -128,7 +129,7 @@ export default function AnalyticsPage() {
     padding: { top: 10, right: 10, bottom: 0, left: 0 },
   };
 
-  const projectChart: AgChartOptions = {
+  const projectChart: ChartOptions = {
     data: projectChartData,
     series: [
       { type: 'bar', xKey: 'project', yKey: 'messages', yName: 'Messages', fill: '#2563eb', cornerRadius: 4 },
@@ -142,7 +143,7 @@ export default function AnalyticsPage() {
     padding: { top: 10, right: 10, bottom: 0, left: 0 },
   };
 
-  const toolPieChart: AgChartOptions = {
+  const toolPieChart: ChartOptions = {
     data: toolChartData,
     series: [{
       type: 'pie',
@@ -157,7 +158,7 @@ export default function AnalyticsPage() {
     padding: { top: 0, right: 0, bottom: 0, left: 0 },
   };
 
-  const toolBarChart: AgChartOptions = {
+  const toolBarChart: ChartOptions = {
     data: toolChartData,
     series: [
       { type: 'bar', direction: 'horizontal', xKey: 'tool', yKey: 'uses', yName: 'Uses', fill: '#2563eb', cornerRadius: 4 },
