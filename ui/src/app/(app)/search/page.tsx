@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,10 +34,10 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Search</h1>
-        <p className="text-sm text-muted-foreground mt-1">Search across all your coding sessions using natural language.</p>
+        <h1 className="text-lg font-semibold tracking-tight">Search</h1>
+        <p className="text-[13px] text-muted-foreground mt-0.5">Semantic search across all your coding sessions.</p>
       </div>
 
       <div className="flex gap-2">
@@ -50,47 +49,43 @@ export default function SearchPage() {
           className="flex-1"
         />
         <Button onClick={doSearch} disabled={loading}>
-          <SearchIcon className="h-4 w-4 mr-2" />
+          <SearchIcon className="h-3.5 w-3.5 mr-1.5" />
           {loading ? 'Searching...' : 'Search'}
         </Button>
       </div>
 
       {loading && (
         <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
         </div>
       )}
 
       {!loading && searched && results.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground text-sm">
-            No results found. Try a different query.
-          </CardContent>
-        </Card>
+        <div className="py-12 text-center text-muted-foreground text-[13px] rounded-lg border bg-card">
+          No results found. Try a different query.
+        </div>
       )}
 
       {!loading && results.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">{results.length} results</p>
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground">{results.length} results</p>
           {results.map((r, i) => (
-            <Card key={i}>
-              <CardContent className="pt-4 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="success">{(r.similarity * 100).toFixed(1)}%</Badge>
-                  <Badge variant={r.role === 'user' ? 'info' : 'secondary'}>{r.role}</Badge>
-                  <span className="text-xs text-muted-foreground">{cleanProject(r.project || '')}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', {
-                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                    }) : ''}
-                  </span>
-                </div>
-                {r.title && <p className="text-xs text-muted-foreground">Session: {r.title}</p>}
-                <div className="p-3 bg-muted/30 rounded-md text-[13px] leading-relaxed whitespace-pre-wrap">
-                  {r.content}
-                </div>
-              </CardContent>
-            </Card>
+            <div key={i} className="rounded-lg border bg-card p-3 space-y-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="success">{(r.similarity * 100).toFixed(1)}%</Badge>
+                <Badge variant={r.role === 'user' ? 'default' : 'secondary'}>{r.role}</Badge>
+                <span className="text-[11px] text-muted-foreground">{cleanProject(r.project || '')}</span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                  }) : ''}
+                </span>
+              </div>
+              {r.title && <p className="text-[11px] text-muted-foreground">Session: {r.title}</p>}
+              <div className="p-2.5 bg-secondary/50 rounded text-[13px] leading-relaxed whitespace-pre-wrap">
+                {r.content}
+              </div>
+            </div>
           ))}
         </div>
       )}

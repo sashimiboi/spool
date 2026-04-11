@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare } from 'lucide-react';
 import { fetchApi, postApi, deleteApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -42,7 +41,6 @@ export default function ChatPage() {
   const [history, setHistory] = useState<ChatSession[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load settings + chat history
   useEffect(() => {
     fetchApi('/api/settings').then((s) => {
       setModelInfo({ provider: s.provider || 'ollama', model: s.model || 'gemma3:4b' });
@@ -114,27 +112,27 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-48px)] gap-4">
+    <div className="flex h-[calc(100vh-40px)] gap-3">
       {/* Chat history sidebar */}
-      <div className="w-56 shrink-0 flex flex-col border-r border-border pr-4">
-        <Button variant="outline" size="sm" className="w-full mb-3" onClick={newChat}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> New Chat
+      <div className="w-52 shrink-0 flex flex-col border-r border-border pr-3">
+        <Button variant="outline" size="sm" className="w-full mb-2" onClick={newChat}>
+          <Plus className="h-3 w-3 mr-1.5" /> New Chat
         </Button>
 
-        <div className="flex-1 overflow-auto space-y-0.5">
+        <div className="flex-1 overflow-auto scrollbar-thin space-y-px">
           {history.map((s) => (
             <div
               key={s.id}
               onClick={() => loadSession(s.id)}
-              className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors text-left ${
+              className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors text-left ${
                 chatSessionId === s.id
-                  ? 'bg-muted text-foreground'
-                  : 'hover:bg-muted/50 text-muted-foreground'
+                  ? 'bg-accent text-foreground'
+                  : 'hover:bg-accent/50 text-muted-foreground'
               }`}
             >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <MessageSquare className="h-3 w-3 shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium truncate">{s.title || 'Untitled'}</div>
+                <div className="text-[11px] font-medium truncate">{s.title || 'Untitled'}</div>
                 <div className="text-[10px] text-muted-foreground">
                   {new Date(s.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   {' \u00B7 '}
@@ -151,53 +149,51 @@ export default function ChatPage() {
             </div>
           ))}
           {history.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-4">No chat history yet</p>
+            <p className="text-[11px] text-muted-foreground text-center py-4">No chat history yet</p>
           )}
         </div>
       </div>
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
-            <p className="text-sm text-muted-foreground">Ask questions about your coding sessions</p>
+            <h1 className="text-lg font-semibold tracking-tight">Chat</h1>
+            <p className="text-[13px] text-muted-foreground">Ask questions about your coding sessions</p>
           </div>
-          <div className="flex items-center gap-2">
-            {modelInfo && (
-              <button
-                onClick={() => router.push('/settings')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-background hover:bg-muted transition-colors text-xs"
-                title="Change model in Settings"
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${modelInfo.provider === 'anthropic' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                <span className="text-muted-foreground">{modelInfo.provider === 'anthropic' ? 'Anthropic' : 'Ollama'}</span>
-                <span className="font-medium text-foreground">{modelInfo.model.replace('claude-', '').replace(/-\d+$/, '')}</span>
-                <Settings className="h-3 w-3 text-muted-foreground" />
-              </button>
-            )}
-          </div>
+          {modelInfo && (
+            <button
+              onClick={() => router.push('/settings')}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-transparent hover:bg-accent transition-colors text-[11px]"
+              title="Change model in Settings"
+            >
+              <div className={`w-1.5 h-1.5 rounded-full ${modelInfo.provider === 'anthropic' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+              <span className="text-muted-foreground">{modelInfo.provider === 'anthropic' ? 'Anthropic' : 'Ollama'}</span>
+              <span className="font-medium text-foreground">{modelInfo.model.replace('claude-', '').replace(/-\d+$/, '')}</span>
+              <Settings className="h-3 w-3 text-muted-foreground" />
+            </button>
+          )}
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-auto space-y-4 pb-4">
+        <div className="flex-1 overflow-auto scrollbar-thin space-y-3 pb-3">
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-6">
+            <div className="flex flex-col items-center justify-center h-full gap-5">
               <div className="text-center">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                  <Bot className="h-6 w-6 text-primary" />
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                  <Bot className="h-5 w-5 text-primary" />
                 </div>
-                <h2 className="text-lg font-semibold">Spool Assistant</h2>
-                <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                  I can help you explore your coding session history, usage stats, and costs.
+                <h2 className="text-sm font-semibold">Spool Assistant</h2>
+                <p className="text-[13px] text-muted-foreground mt-1 max-w-md">
+                  Explore your session history, usage stats, and costs.
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+              <div className="flex flex-wrap justify-center gap-1.5 max-w-lg">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="px-3 py-1.5 text-xs rounded-full border border-border bg-background hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    className="px-2.5 py-1 text-[11px] rounded-md border border-border bg-transparent hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
                   >
                     {s}
                   </button>
@@ -207,34 +203,34 @@ export default function ChatPage() {
           )}
 
           {messages.map((m, i) => (
-            <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : ''}`}>
+            <div key={i} className={`flex gap-2.5 ${m.role === 'user' ? 'justify-end' : ''}`}>
               {m.role === 'assistant' && (
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="h-4 w-4 text-primary" />
+                <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <Bot className="h-3.5 w-3.5 text-primary" />
                 </div>
               )}
               <div className={`max-w-[75%] ${
                 m.role === 'user'
-                  ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5'
-                  : 'bg-muted/50 rounded-2xl rounded-bl-md px-4 py-2.5'
+                  ? 'bg-primary text-primary-foreground rounded-xl rounded-br-sm px-3 py-2'
+                  : 'bg-secondary rounded-xl rounded-bl-sm px-3 py-2'
               }`}>
-                <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
               </div>
               {m.role === 'user' && (
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                  <User className="h-4 w-4 text-muted-foreground" />
+                <div className="w-7 h-7 rounded-md bg-secondary flex items-center justify-center shrink-0 mt-0.5">
+                  <User className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
               )}
             </div>
           ))}
 
           {loading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Bot className="h-4 w-4 text-primary" />
+            <div className="flex gap-2.5">
+              <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
-              <div className="bg-muted/50 rounded-2xl rounded-bl-md px-4 py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <div className="bg-secondary rounded-xl rounded-bl-sm px-3 py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               </div>
             </div>
           )}
@@ -243,7 +239,7 @@ export default function ChatPage() {
         </div>
 
         {/* Input */}
-        <div className="border-t pt-4">
+        <div className="border-t pt-3">
           <div className="flex gap-2">
             <Input
               value={input}
@@ -253,8 +249,8 @@ export default function ChatPage() {
               disabled={loading}
               className="flex-1"
             />
-            <Button onClick={() => send()} disabled={loading || !input.trim()}>
-              <Send className="h-4 w-4" />
+            <Button onClick={() => send()} disabled={loading || !input.trim()} size="icon">
+              <Send className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>

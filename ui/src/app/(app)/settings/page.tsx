@@ -58,60 +58,60 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
+    return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" /></div>;
   }
 
   const isOllama = settings.provider === 'ollama';
   const isAnthropic = settings.provider === 'anthropic';
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-5 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Configure the Spool Assistant AI provider</p>
+        <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
+        <p className="text-[13px] text-muted-foreground mt-0.5">Configure the Spool Assistant AI provider</p>
       </div>
 
       {saved && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
-          <CheckCircle className="h-4 w-4" /> Settings saved
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[13px] text-emerald-600 dark:text-emerald-400">
+          <CheckCircle className="h-3.5 w-3.5" /> Settings saved
         </div>
       )}
 
       {/* Provider selection */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base text-foreground flex items-center gap-2">
-            <Cpu className="h-4 w-4" /> AI Provider
+          <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal flex items-center gap-2">
+            <Cpu className="h-3.5 w-3.5" /> AI Provider
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => save({ provider: 'ollama' })}
-              className={`p-4 rounded-lg border-2 text-left transition-colors ${
-                isOllama ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30'
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                isOllama ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent'
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
-                <Server className="h-4 w-4" />
-                <span className="font-semibold text-sm">Ollama</span>
+                <Server className="h-3.5 w-3.5" />
+                <span className="font-medium text-[13px]">Ollama</span>
                 <Badge variant="success" className="text-[10px]">Free</Badge>
               </div>
-              <p className="text-xs text-muted-foreground">Run models locally. No API key needed.</p>
+              <p className="text-[11px] text-muted-foreground">Run models locally. No API key needed.</p>
             </button>
 
             <button
               onClick={() => save({ provider: 'anthropic' })}
-              className={`p-4 rounded-lg border-2 text-left transition-colors ${
-                isAnthropic ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30'
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                isAnthropic ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent'
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
-                <Key className="h-4 w-4" />
-                <span className="font-semibold text-sm">Anthropic</span>
-                <Badge variant="info" className="text-[10px]">API Key</Badge>
+                <Key className="h-3.5 w-3.5" />
+                <span className="font-medium text-[13px]">Anthropic</span>
+                <Badge variant="default" className="text-[10px]">API Key</Badge>
               </div>
-              <p className="text-xs text-muted-foreground">Use Claude via API. Bring your own key.</p>
+              <p className="text-[11px] text-muted-foreground">Use Claude via API. Bring your own key.</p>
             </button>
           </div>
         </CardContent>
@@ -122,7 +122,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base text-foreground">Ollama Configuration</CardTitle>
+              <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Ollama Configuration</CardTitle>
               {ollamaStatus && (
                 ollamaStatus.status === 'connected'
                   ? <Badge variant="success"><CheckCircle className="h-3 w-3 mr-1" /> Connected</Badge>
@@ -130,49 +130,49 @@ export default function SettingsPage() {
               )}
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div>
-              <label className="text-sm font-medium mb-1.5 block">Ollama URL</label>
+              <label className="text-[13px] font-medium mb-1 block">Ollama URL</label>
               <div className="flex gap-2">
                 <Input
                   value={settings.ollama_url || 'http://localhost:11434'}
                   onChange={(e) => setSettings({ ...settings, ollama_url: e.target.value })}
                 />
-                <Button variant="outline" onClick={() => save({ ollama_url: settings.ollama_url })}>
+                <Button variant="outline" size="sm" onClick={() => save({ ollama_url: settings.ollama_url })}>
                   Save
                 </Button>
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-1.5 block">Model</label>
+              <label className="text-[13px] font-medium mb-1 block">Model</label>
               <div className="flex gap-2">
                 <Input
                   value={settings.model || 'gemma3:4b'}
                   onChange={(e) => setSettings({ ...settings, model: e.target.value })}
                   placeholder="gemma3:4b"
                 />
-                <Button variant="outline" onClick={() => save({ model: settings.model })}>
+                <Button variant="outline" size="sm" onClick={() => save({ model: settings.model })}>
                   Save
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Pull models with: <code className="bg-muted px-1 rounded">ollama pull gemma3:4b</code>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Pull models with: <code className="bg-secondary px-1 rounded text-[11px]">ollama pull gemma3:4b</code>
               </p>
             </div>
 
             {ollamaStatus && ollamaStatus.models.length > 0 && (
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Available Models</label>
-                <div className="flex flex-wrap gap-2">
+                <label className="text-[13px] font-medium mb-1.5 block">Available Models</label>
+                <div className="flex flex-wrap gap-1.5">
                   {ollamaStatus.models.map(m => (
                     <button
                       key={m}
                       onClick={() => save({ model: m })}
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                      className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
                         settings.model === m
                           ? 'bg-primary text-primary-foreground border-primary'
-                          : 'bg-background border-border hover:bg-muted'
+                          : 'bg-transparent border-border hover:bg-accent'
                       }`}
                     >
                       {m}
@@ -183,10 +183,10 @@ export default function SettingsPage() {
             )}
 
             {ollamaStatus && ollamaStatus.status === 'disconnected' && (
-              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 space-y-1">
-                <p className="font-medium">Ollama is not running</p>
-                <p>Install and start Ollama:</p>
-                <code className="block bg-amber-100 rounded p-2 text-xs">
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[13px] text-foreground space-y-1">
+                <p className="font-medium text-amber-600 dark:text-amber-400">Ollama is not running</p>
+                <p className="text-muted-foreground">Install and start Ollama:</p>
+                <code className="block bg-secondary rounded p-2 text-[11px] font-mono">
                   brew install ollama{'\n'}ollama serve{'\n'}ollama pull gemma3:4b
                 </code>
               </div>
@@ -199,14 +199,14 @@ export default function SettingsPage() {
       {isAnthropic && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-foreground">Anthropic Configuration</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Anthropic Configuration</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div>
-              <label className="text-sm font-medium mb-1.5 block">API Key</label>
+              <label className="text-[13px] font-medium mb-1 block">API Key</label>
               {settings.anthropic_api_key_masked && (
-                <p className="text-xs text-muted-foreground mb-2">
-                  Current key: <code className="bg-muted px-1 rounded">{settings.anthropic_api_key_masked}</code>
+                <p className="text-[11px] text-muted-foreground mb-1.5">
+                  Current key: <code className="bg-secondary px-1 rounded">{settings.anthropic_api_key_masked}</code>
                 </p>
               )}
               <div className="flex gap-2">
@@ -218,28 +218,26 @@ export default function SettingsPage() {
                 />
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => { save({ anthropic_api_key: apiKey }); setApiKey(''); }}
                   disabled={!apiKey}
                 >
                   Save
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Get your key at <span className="font-medium">console.anthropic.com</span>
-              </p>
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-1.5 block">Model</label>
-              <div className="flex flex-wrap gap-2">
+              <label className="text-[13px] font-medium mb-1.5 block">Model</label>
+              <div className="flex flex-wrap gap-1.5">
                 {['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001', 'claude-opus-4-20250514'].map(m => (
                   <button
                     key={m}
                     onClick={() => save({ model: m })}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
                       settings.model === m
                         ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background border-border hover:bg-muted'
+                        : 'bg-transparent border-border hover:bg-accent'
                     }`}
                   >
                     {m.replace('claude-', '').replace(/-\d+$/, '')}

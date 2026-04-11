@@ -5,9 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AgCharts } from 'ag-charts-react';
 import { ModuleRegistry, AllCommunityModule } from 'ag-charts-community';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ChartOptions = any;
 import { useRouter } from 'next/navigation';
+import { useTheme } from '@/components/ThemeProvider';
 import { fetchApi, formatNumber, formatCost, formatDate, cleanProject } from '@/lib/api';
 import {
   MessageSquare, Wrench, Coins, FolderOpen, Hash, Activity,
@@ -43,6 +42,7 @@ interface DailyStats {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { resolved } = useTheme();
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [daily, setDaily] = useState<DailyStats[]>([]);
@@ -67,11 +67,12 @@ export default function DashboardPage() {
   if (loading || !overview) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
       </div>
     );
   }
 
+  const isDark = resolved === 'dark';
   const s = overview.summary;
   const totalTokens = (s.total_input_tokens || 0) + (s.total_output_tokens || 0);
 
@@ -84,43 +85,41 @@ export default function DashboardPage() {
     { label: 'Projects', value: overview.projects.length, icon: FolderOpen },
   ];
 
-  const chartOptions: ChartOptions = {
+  const chartOptions: any = {
     data: daily.map(d => ({
       day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       messages: d.messages,
       toolCalls: d.tool_calls,
     })),
     series: [
-      { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', fill: '#2563eb', cornerRadius: 4 },
-      { type: 'bar', xKey: 'day', yKey: 'toolCalls', yName: 'Tool Calls', fill: '#d1d5db', cornerRadius: 4 },
+      { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', fill: isDark ? '#8b7cf6' : '#7c5cfc', cornerRadius: 3 },
+      { type: 'bar', xKey: 'day', yKey: 'toolCalls', yName: 'Tool Calls', fill: isDark ? '#3f3f50' : '#d4d4d8', cornerRadius: 3 },
     ],
     axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 11, color: '#9ca3af' } },
-      { type: 'number', position: 'left', label: { fontSize: 11, color: '#9ca3af' }, gridLine: { style: [{ stroke: '#f0f0f0' }] } },
-    ],
-    legend: { position: 'bottom', item: { label: { fontSize: 11, color: '#6b7280' } } },
+      { type: 'category', position: 'bottom', label: { fontSize: 10, color: isDark ? '#6b6b80' : '#8b8b9e' } },
+      { type: 'number', position: 'left', label: { fontSize: 10, color: isDark ? '#6b6b80' : '#8b8b9e' }, gridLine: { style: [{ stroke: isDark ? '#2a2a3c' : '#f0f0f2' }] } },
+    ] as any,
+    legend: { position: 'bottom', item: { label: { fontSize: 11, color: isDark ? '#8b8b9e' : '#6b7280' } } },
     background: { fill: 'transparent' },
     padding: { top: 10, right: 10, bottom: 0, left: 0 },
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+    <div className="space-y-5">
+      <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
             <Card key={card.label}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle>{card.label}</CardTitle>
-                  <Icon className="h-4 w-4 text-muted-foreground" />
+              <CardContent className="pt-3 pb-3 px-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{card.label}</span>
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-xl font-semibold">
                   {card.raw ? card.value : formatNumber(card.value as number)}
                 </div>
               </CardContent>
@@ -133,10 +132,10 @@ export default function DashboardPage() {
       {daily.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-foreground">Daily Activity</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Daily Activity</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[240px]">
+            <div className="h-[220px]">
               <AgCharts options={chartOptions} />
             </div>
           </CardContent>
@@ -144,40 +143,38 @@ export default function DashboardPage() {
       )}
 
       {/* Two column: Projects + Tools */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Projects */}
+      <div className="grid md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-foreground">Projects</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Projects</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-1">
             {overview.projects.slice(0, 8).map((p) => (
-              <div key={p.project} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+              <div key={p.project} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
                 <div>
-                  <div className="text-sm font-medium">{cleanProject(p.project)}</div>
-                  <div className="text-xs text-muted-foreground">{p.sessions} sessions, {p.messages} msgs</div>
+                  <div className="text-[13px] font-medium">{cleanProject(p.project)}</div>
+                  <div className="text-[11px] text-muted-foreground">{p.sessions} sessions</div>
                 </div>
-                <Badge variant="info">{formatCost(p.cost || 0)}</Badge>
+                <span className="text-xs text-muted-foreground font-mono">{formatCost(p.cost || 0)}</span>
               </div>
             ))}
           </CardContent>
         </Card>
 
-        {/* Top Tools */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-foreground">Top Tools</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Top Tools</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2">
             {overview.top_tools.slice(0, 8).map((t) => {
               const maxUses = overview.top_tools[0]?.uses || 1;
               return (
                 <div key={t.tool_name} className="flex items-center gap-3">
-                  <span className="text-sm font-mono w-20 shrink-0">{t.tool_name}</span>
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full" style={{ width: `${(t.uses / maxUses) * 100}%` }} />
+                  <span className="text-xs font-mono text-muted-foreground w-20 shrink-0 truncate">{t.tool_name}</span>
+                  <div className="flex-1 h-1 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-primary/60 rounded-full" style={{ width: `${(t.uses / maxUses) * 100}%` }} />
                   </div>
-                  <span className="text-xs text-muted-foreground w-12 text-right">{formatNumber(t.uses)}</span>
+                  <span className="text-[11px] text-muted-foreground w-10 text-right tabular-nums">{formatNumber(t.uses)}</span>
                 </div>
               );
             })}
@@ -189,30 +186,30 @@ export default function DashboardPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base text-foreground">Recent Sessions</CardTitle>
-            <button onClick={() => router.push('/sessions')} className="text-xs text-primary font-medium hover:underline">
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Recent Sessions</CardTitle>
+            <button onClick={() => router.push('/sessions')} className="text-[11px] text-primary font-medium hover:underline">
               View all
             </button>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-1">
+          <div className="space-y-px">
             {overview.recent_sessions.slice(0, 8).map((r) => (
               <div
                 key={r.id}
                 onClick={() => router.push(`/sessions?id=${r.id}`)}
-                className="flex items-center justify-between py-2.5 px-2 -mx-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
+                className="flex items-center justify-between py-2 px-2 -mx-2 rounded-md hover:bg-accent cursor-pointer transition-colors"
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">{(r.title || 'Untitled').slice(0, 60)}</div>
-                  <div className="text-xs text-muted-foreground flex gap-2">
+                  <div className="text-[13px] font-medium truncate">{(r.title || 'Untitled').slice(0, 60)}</div>
+                  <div className="text-[11px] text-muted-foreground flex gap-2">
                     <span>{cleanProject(r.project || '')}</span>
                     <span>{formatDate(r.started_at)}</span>
                   </div>
                 </div>
-                <div className="flex gap-2 shrink-0 ml-4">
+                <div className="flex gap-1.5 shrink-0 ml-4">
                   <Badge variant="secondary">{r.message_count} msgs</Badge>
-                  <Badge variant="info">{formatCost(r.estimated_cost_usd || 0)}</Badge>
+                  <span className="text-[11px] text-muted-foreground font-mono">{formatCost(r.estimated_cost_usd || 0)}</span>
                 </div>
               </div>
             ))}

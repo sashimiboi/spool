@@ -9,7 +9,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <AppNavigation collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
-      <main className="flex-1 min-w-0 p-6">{children}</main>
+      <main className="flex-1 min-w-0 p-5 overflow-auto scrollbar-thin">{children}</main>
     </div>
   );
 }
