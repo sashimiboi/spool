@@ -154,7 +154,8 @@ def parse_session_file(file_path: Path) -> ParsedSession | None:
                     git_branch = record["gitBranch"]
                 if not claude_version and record.get("version"):
                     claude_version = record["version"]
-    except Exception:
+    except Exception as e:
+        print(f"Error parsing {file_path}: {e}")
         return None
 
     if not messages:

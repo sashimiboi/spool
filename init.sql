@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+
 -- Individual messages within a session
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,

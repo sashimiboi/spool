@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
-import { CheckCircle, XCircle, Plus, Info } from 'lucide-react';
+import { CheckCircle, XCircle, Plus, Info, RefreshCw } from 'lucide-react';
 import { fetchApi, postApi, deleteApi } from '@/lib/api';
 
 interface Provider {
@@ -45,6 +45,8 @@ export default function ConnectionsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<AvailableProvider | null>(null);
   const [customPath, setCustomPath] = useState('');
+  const [syncing, setSyncing] = useState<Record<string, boolean>>({});
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -60,10 +62,35 @@ export default function ConnectionsPage() {
     if (!selectedType) return;
     await postApi('/api/providers', { type: selectedType.type, data_path: customPath || selectedType.default_path });
     setModalOpen(false); setSelectedType(null); setCustomPath('');
-    load();
+    // Auto-sync the newly connected provider
+    setSyncing(s => ({ ...s, [selectedType.type]: true }));
+    await load();
+    try {
+      await postApi(`/api/providers/${selectedType.type}/sync`, {});
+      await load();
+    } catch (e) { console.error(e); }
+    finally { setSyncing(s => ({ ...s, [selectedType.type]: false })); }
   };
 
   const disconnect = async (id: string) => { await deleteApi(`/api/providers/${id}`); load(); };
+
+  const syncProvider = async (id: string) => {
+    setSyncing(s => ({ ...s, [id]: true }));
+    try {
+      await postApi(`/api/providers/${id}/sync`, {});
+      await load();
+    } catch (e) { console.error(e); }
+    finally { setSyncing(s => ({ ...s, [id]: false })); }
+  };
+
+  const syncAll = async () => {
+    setSyncingAll(true);
+    try {
+      await postApi('/api/sync', { embed: false });
+      await load();
+    } catch (e) { console.error(e); }
+    finally { setSyncingAll(false); }
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" /></div>;
 
@@ -73,11 +100,19 @@ export default function ConnectionsPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Connections</h1>
-        {unconnected.length > 0 && (
-          <Button onClick={() => setModalOpen(true)} size="sm">
-            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Connection
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {providers.length > 0 && (
+            <Button variant="outline" size="sm" onClick={syncAll} disabled={syncingAll}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncingAll ? 'animate-spin' : ''}`} />
+              {syncingAll ? 'Syncing...' : 'Sync All'}
+            </Button>
+          )}
+          {unconnected.length > 0 && (
+            <Button onClick={() => setModalOpen(true)} size="sm">
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Connection
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Info banner */}
@@ -108,7 +143,13 @@ export default function ConnectionsPage() {
                   <div><span className="text-[11px] text-muted-foreground block">Sessions</span><span className="font-medium">{p.session_count || 0}</span></div>
                   <div><span className="text-[11px] text-muted-foreground block">Last Synced</span><span className="font-medium">{p.last_synced_at ? new Date(p.last_synced_at).toLocaleDateString() : 'Never'}</span></div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => disconnect(p.id)}>Disconnect</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => syncProvider(p.id)} disabled={syncing[p.id]}>
+                    <RefreshCw className={`h-3 w-3 mr-1.5 ${syncing[p.id] ? 'animate-spin' : ''}`} />
+                    {syncing[p.id] ? 'Syncing...' : 'Sync'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => disconnect(p.id)}>Disconnect</Button>
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -1,11 +1,18 @@
 """Spool CLI - track and search your AI coding assistant sessions."""
 
+import re
+
 import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
 console = Console()
+
+
+def _clean_project(name: str) -> str:
+    """Turn '-Users-username-path-to-project' into '~/path/to/project'."""
+    return re.sub(r"-Users-[^-]+-", "~/", name).replace("-", "/")
 
 
 @click.group()
@@ -133,7 +140,7 @@ def stats(week, days):
         table.add_column("Messages", justify="right")
         table.add_column("Est. Cost", justify="right")
         for p in overview["projects"][:10]:
-            proj = p["project"].replace("-Users-anthonyloya-", "~/")
+            proj = _clean_project(p["project"])
             table.add_row(
                 proj,
                 str(p["sessions"]),
@@ -182,7 +189,7 @@ def stats(week, days):
         table.add_column("Msgs", justify="right")
         table.add_column("Cost", justify="right")
         for r in overview["recent_sessions"]:
-            proj = (r["project"] or "").replace("-Users-anthonyloya-", "~/")
+            proj = _clean_project(r["project"] or "")
             ts = r["started_at"].strftime("%m/%d %H:%M") if r["started_at"] else ""
             title = (r["title"] or "")[:50]
             table.add_row(

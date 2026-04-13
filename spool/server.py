@@ -197,6 +197,59 @@ async def api_create_provider(body: ProviderCreate):
     return {"id": provider_id, "name": tmpl["name"], "status": "connected"}
 
 
+class SyncRequest(BaseModel):
+    provider: str | None = None
+    embed: bool = False
+
+
+@app.post("/api/sync")
+async def api_sync(body: SyncRequest):
+    """Trigger a sync for all or a specific provider."""
+    from spool.ingest import sync as do_sync
+    import threading
+
+    # Run sync in a background thread so the API doesn't block
+    result = {"status": "syncing", "provider": body.provider or "all"}
+
+    def run_sync():
+        try:
+            do_sync(embed=body.embed, provider_filter=body.provider)
+        except Exception as e:
+            print(f"Sync error: {e}")
+
+    thread = threading.Thread(target=run_sync, daemon=True)
+    thread.start()
+    # Wait briefly so fast syncs complete before response
+    thread.join(timeout=30)
+
+    if thread.is_alive():
+        return {"status": "syncing", "message": "Sync is running in the background"}
+
+    return {"status": "complete", "message": "Sync finished"}
+
+
+@app.post("/api/providers/{provider_id}/sync")
+async def api_sync_provider(provider_id: str):
+    """Trigger a sync for a specific provider."""
+    from spool.ingest import sync as do_sync
+    import threading
+
+    def run_sync():
+        try:
+            do_sync(embed=False, provider_filter=provider_id)
+        except Exception as e:
+            print(f"Sync error for {provider_id}: {e}")
+
+    thread = threading.Thread(target=run_sync, daemon=True)
+    thread.start()
+    thread.join(timeout=30)
+
+    if thread.is_alive():
+        return {"status": "syncing", "message": f"Syncing {provider_id} in the background"}
+
+    return {"status": "complete", "message": f"Sync for {provider_id} finished"}
+
+
 @app.delete("/api/providers/{provider_id}")
 async def api_delete_provider(provider_id: str):
     """Disconnect a provider."""
