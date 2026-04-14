@@ -282,10 +282,15 @@ async def api_delete_provider(provider_id: str):
 
 @app.get("/api/traces")
 async def api_traces(
-    limit: int = Query(default=50),
+    limit: int = Query(default=500, le=10000),
+    offset: int = Query(default=0, ge=0),
     provider: str | None = Query(default=None),
     project: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    since_days: int | None = Query(default=None),
 ):
+    """List traces with optional filters. Returns up to `limit` rows plus
+    a total count so the GUI can show "X of Y"."""
     conn = get_connection()
     clauses = []
     params: list = []
@@ -295,17 +300,34 @@ async def api_traces(
     if project:
         clauses.append("project = %s")
         params.append(project)
+    if session_id:
+        clauses.append("session_id = %s")
+        params.append(session_id)
+    if since_days:
+        clauses.append("started_at >= now() - make_interval(days => %s)")
+        params.append(since_days)
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    params.append(limit)
+
+    total_row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM traces {where}",
+        tuple(params),
+    ).fetchone()
+    total = int((total_row or {}).get("n") or 0)
+
     rows = conn.execute(
         f"""SELECT id, session_id, provider_id, project, title, started_at, ended_at,
                    duration_ms, span_count, agent_count, tool_count, llm_count, error_count,
                    total_input_tokens, total_output_tokens, total_cost_usd, model
-           FROM traces {where} ORDER BY started_at DESC LIMIT %s""",
-        tuple(params),
+           FROM traces {where} ORDER BY started_at DESC NULLS LAST LIMIT %s OFFSET %s""",
+        tuple(params + [limit, offset]),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "rows": [dict(r) for r in rows],
+    }
 
 
 @app.get("/api/traces/{trace_id}")
@@ -390,26 +412,80 @@ async def api_eval_rubrics():
 
 
 @app.get("/api/evals")
-async def api_evals(limit: int = Query(default=100), rubric: str | None = Query(default=None)):
+async def api_evals(
+    limit: int = Query(default=500, le=10000),
+    offset: int = Query(default=0, ge=0),
+    rubric: str | None = Query(default=None),
+    trace_id: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    provider: str | None = Query(default=None),
+    passed: str | None = Query(default=None),  # "true" | "false" | "null"
+    search: str | None = Query(default=None),
+    since_days: int | None = Query(default=None),
+):
+    """List eval runs with filters. Joins traces so each row carries the
+    session_id, provider_id and project it graded, and returns a total
+    count so the GUI can paginate/display 'X of Y'."""
     conn = get_connection()
+    clauses: list[str] = []
+    params: list = []
     if rubric:
-        rows = conn.execute(
-            """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.trace_id, e.span_id,
-                      e.score, e.passed, e.label, e.rationale, e.run_at
-               FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
-               WHERE e.rubric_id = %s ORDER BY e.run_at DESC LIMIT %s""",
-            (rubric, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.trace_id, e.span_id,
-                      e.score, e.passed, e.label, e.rationale, e.run_at
-               FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
-               ORDER BY e.run_at DESC LIMIT %s""",
-            (limit,),
-        ).fetchall()
+        clauses.append("e.rubric_id = %s")
+        params.append(rubric)
+    if trace_id:
+        clauses.append("e.trace_id = %s")
+        params.append(trace_id)
+    if session_id:
+        clauses.append("t.session_id = %s")
+        params.append(session_id)
+    if provider:
+        clauses.append("t.provider_id = %s")
+        params.append(provider)
+    if passed == "true":
+        clauses.append("e.passed IS TRUE")
+    elif passed == "false":
+        clauses.append("e.passed IS FALSE")
+    elif passed == "null":
+        clauses.append("e.passed IS NULL")
+    if since_days:
+        clauses.append("e.run_at >= now() - make_interval(days => %s)")
+        params.append(since_days)
+    if search:
+        like = f"%{search}%"
+        clauses.append(
+            "(e.trace_id ILIKE %s OR t.session_id ILIKE %s OR t.project ILIKE %s OR e.label ILIKE %s OR e.rationale ILIKE %s)"
+        )
+        params.extend([like, like, like, like, like])
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    total_row = conn.execute(
+        f"""SELECT COUNT(*) AS n
+            FROM evals e
+            LEFT JOIN traces t ON t.id = e.trace_id
+            {where}""",
+        tuple(params),
+    ).fetchone()
+    total = int((total_row or {}).get("n") or 0)
+
+    rows = conn.execute(
+        f"""SELECT e.id, e.rubric_id, r.name AS rubric_name, e.trace_id, e.span_id,
+                   e.score, e.passed, e.label, e.rationale, e.run_at,
+                   e.judge_model,
+                   t.session_id, t.provider_id, t.project, t.title AS trace_title
+            FROM evals e
+            LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
+            LEFT JOIN traces t ON t.id = e.trace_id
+            {where}
+            ORDER BY e.run_at DESC LIMIT %s OFFSET %s""",
+        tuple(params + [limit, offset]),
+    ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "rows": [dict(r) for r in rows],
+    }
 
 
 class SpanIn(BaseModel):

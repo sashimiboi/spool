@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,11 @@ interface EvalRow {
   label: string | null;
   rationale: string | null;
   run_at: string;
+  judge_model: string | null;
+  session_id: string | null;
+  provider_id: string | null;
+  project: string | null;
+  trace_title: string | null;
 }
 
 type Window = 'all' | '24h' | '7d' | '30d';
@@ -56,22 +61,41 @@ export default function EvalsPage() {
   const [loading, setLoading] = useState(true);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [evals, setEvals] = useState<EvalRow[]>([]);
+  const [totalEvals, setTotalEvals] = useState(0);
   const [rubricFilter, setRubricFilter] = useState<string | null>(null);
   const [runningBulk, setRunningBulk] = useState<string | null>(null);
   const [bulkWindow, setBulkWindow] = useState<Window>('7d');
   const [lastRun, setLastRun] = useState<string | null>(null);
 
+  // List filters (separate from the bulk-run window)
+  const [search, setSearch] = useState('');
+  const [passFilter, setPassFilter] = useState<'all' | 'passed' | 'failed' | 'null'>('all');
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [listWindow, setListWindow] = useState<Window>('all');
+
   const loadAll = useCallback(async () => {
     try {
+      const params = new URLSearchParams({ limit: '2000' });
+      if (listWindow !== 'all') {
+        const days = WINDOWS.find(w => w.key === listWindow)?.days;
+        if (days) params.set('since_days', String(days));
+      }
+      if (providerFilter) params.set('provider', providerFilter);
+      if (passFilter === 'passed') params.set('passed', 'true');
+      else if (passFilter === 'failed') params.set('passed', 'false');
+      else if (passFilter === 'null') params.set('passed', 'null');
       const [rbs, evs] = await Promise.all([
         fetchApi('/api/evals/rubrics'),
-        fetchApi('/api/evals?limit=200'),
+        fetchApi(`/api/evals?${params.toString()}`),
       ]);
       setRubrics(rbs);
-      setEvals(evs);
+      const rows = Array.isArray(evs) ? evs : (evs?.rows || []);
+      const total = Array.isArray(evs) ? evs.length : (evs?.total ?? rows.length);
+      setEvals(rows);
+      setTotalEvals(total);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, []);
+  }, [listWindow, providerFilter, passFilter]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -105,7 +129,23 @@ export default function EvalsPage() {
     return { rubric: r, runs: runs.length, avg, passRate, passed, failed, latest };
   });
 
-  const filteredEvals = rubricFilter ? evals.filter(e => e.rubric_id === rubricFilter) : evals;
+  const availableProviders = useMemo(() => {
+    const set = new Set<string>();
+    evals.forEach((e) => e.provider_id && set.add(e.provider_id));
+    return Array.from(set).sort();
+  }, [evals]);
+
+  const filteredEvals = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return evals.filter((e) => {
+      if (rubricFilter && e.rubric_id !== rubricFilter) return false;
+      if (q) {
+        const hay = `${e.trace_id || ''} ${e.session_id || ''} ${e.project || ''} ${e.label || ''} ${e.rationale || ''} ${e.rubric_name || e.rubric_id}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [evals, rubricFilter, search]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">
@@ -224,21 +264,97 @@ export default function EvalsPage() {
         )}
       </div>
 
+      {/* List filter toolbar */}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search session, trace, project, label, rationale..."
+          className="flex-1 min-w-[240px] max-w-md h-9 px-3 rounded-md border bg-card text-[13px]"
+        />
+        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+          {(['all', 'passed', 'failed', 'null'] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setPassFilter(k)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                passFilter === k ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {k === 'null' ? 'skipped' : k}
+            </button>
+          ))}
+        </div>
+        {availableProviders.length > 1 && (
+          <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+            <button
+              onClick={() => setProviderFilter(null)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                providerFilter === null ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              All providers
+            </button>
+            {availableProviders.slice(0, 6).map((p) => (
+              <button
+                key={p}
+                onClick={() => setProviderFilter(providerFilter === p ? null : p)}
+                className={cn(
+                  'px-2.5 py-1 rounded transition-colors',
+                  providerFilter === p ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+          {WINDOWS.map((w) => (
+            <button
+              key={w.key}
+              onClick={() => setListWindow(w.key)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                listWindow === w.key ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+        {(search || rubricFilter || providerFilter || passFilter !== 'all' || listWindow !== 'all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setSearch(''); setRubricFilter(null); setProviderFilter(null); setPassFilter('all'); setListWindow('all'); }}
+            className="h-8 text-[12px] text-muted-foreground"
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+
       {/* Recent runs table */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center justify-between gap-2">
-            <span>Recent runs {rubricFilter && `· ${rubricFilter}`}</span>
+            <span>All eval runs {rubricFilter && `· ${rubricFilter}`}</span>
             <span className="text-[11px] text-muted-foreground font-normal tabular-nums">
-              {filteredEvals.length} results
+              {filteredEvals.length.toLocaleString()} of {totalEvals.toLocaleString()}
             </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="divide-y max-h-[60vh] overflow-auto scrollbar-thin">
+          <div className="divide-y max-h-[70vh] overflow-auto scrollbar-thin">
             {filteredEvals.length === 0 ? (
               <p className="p-6 text-[12px] text-muted-foreground text-center">
-                No eval runs yet. Pick a rubric above and click <strong>Run</strong>.
+                {evals.length === 0
+                  ? <>No eval runs yet. Pick a rubric above and click <strong>Run</strong>.</>
+                  : 'No eval runs match your filters.'}
               </p>
             ) : (
               filteredEvals.map(e => (
@@ -249,11 +365,13 @@ export default function EvalsPage() {
                 >
                   <StatusIcon passed={e.passed} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12px] font-medium truncate">
+                    <div className="text-[12px] font-medium truncate flex items-center gap-1.5">
                       {e.rubric_name || e.rubric_id}
+                      {e.provider_id && <Badge variant="outline" className="text-[10px]">{e.provider_id}</Badge>}
                     </div>
                     <div className="text-[11px] text-muted-foreground truncate font-mono">
-                      {e.trace_id || e.span_id}
+                      {e.session_id ? `session ${e.session_id.slice(0, 20)}` : (e.trace_id || e.span_id || '')}
+                      {e.project && <span className="ml-2 opacity-70">· {e.project}</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-[11px] tabular-nums shrink-0">

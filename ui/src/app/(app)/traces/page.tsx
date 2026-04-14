@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, type JSX } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -64,9 +64,15 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
+type WindowKey = 'all' | '24h' | '7d' | '30d';
+const WINDOW_DAYS: Record<WindowKey, number | null> = {
+  all: null, '24h': 1, '7d': 7, '30d': 30,
+};
+
 export default function TracesPage() {
   const [loading, setLoading] = useState(true);
   const [traces, setTraces] = useState<TraceListRow[]>([]);
+  const [totalTraces, setTotalTraces] = useState(0);
   const [selected, setSelected] = useState<TraceDetail | null>(null);
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -74,21 +80,48 @@ export default function TracesPage() {
   const [runningRubric, setRunningRubric] = useState<string | null>(null);
   const [messages, setMessages] = useState<Array<{ role: string; content: string; timestamp: string | null; tools_used: string | string[] | null; estimated_tokens: number }>>([]);
 
+  // Filters
+  const [search, setSearch] = useState('');
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [windowFilter, setWindowFilter] = useState<WindowKey>('all');
+
   const loadList = useCallback(async () => {
     try {
+      const params = new URLSearchParams({ limit: '1000' });
+      if (providerFilter) params.set('provider', providerFilter);
+      if (WINDOW_DAYS[windowFilter]) params.set('since_days', String(WINDOW_DAYS[windowFilter]));
       const [list, sum, rbs] = await Promise.all([
-        fetchApi('/api/traces?limit=100'),
+        fetchApi(`/api/traces?${params.toString()}`),
         fetchApi('/api/observability/summary'),
         fetchApi('/api/evals/rubrics'),
       ]);
-      setTraces(list);
+      // New shape: { rows, total, limit, offset }
+      const rows = Array.isArray(list) ? list : (list?.rows || []);
+      const total = Array.isArray(list) ? list.length : (list?.total ?? rows.length);
+      setTraces(rows);
+      setTotalTraces(total);
       setSummary(sum);
       setRubrics(rbs);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, []);
+  }, [providerFilter, windowFilter]);
 
   useEffect(() => { loadList(); }, [loadList]);
+
+  const availableProviders = useMemo(() => {
+    const set = new Set<string>();
+    traces.forEach((t) => t.provider_id && set.add(t.provider_id));
+    return Array.from(set).sort();
+  }, [traces]);
+
+  const filteredTraces = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return traces;
+    return traces.filter((t) => {
+      const hay = `${t.title || ''} ${t.project || ''} ${t.session_id || ''} ${t.id} ${t.provider_id || ''} ${t.model || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [traces, search]);
 
   const openTrace = useCallback(async (id: string) => {
     try {
@@ -340,7 +373,75 @@ export default function TracesPage() {
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
           <Activity className="h-5 w-5" /> Traces
         </h1>
-        <span className="text-[11px] text-muted-foreground tabular-nums">{traces.length} traces</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {filteredTraces.length} of {totalTraces.toLocaleString()}
+        </span>
+      </div>
+
+      {/* Filter toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title, project, session, branch..."
+          className="flex-1 min-w-[220px] max-w-md h-9 px-3 rounded-md border bg-card text-[13px]"
+        />
+        {availableProviders.length > 1 && (
+          <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+            <button
+              onClick={() => setProviderFilter(null)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                providerFilter === null
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              All
+            </button>
+            {availableProviders.map((p) => (
+              <button
+                key={p}
+                onClick={() => setProviderFilter(providerFilter === p ? null : p)}
+                className={cn(
+                  'px-2.5 py-1 rounded transition-colors',
+                  providerFilter === p
+                    ? 'bg-accent text-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+          {(['all', '24h', '7d', '30d'] as WindowKey[]).map((w) => (
+            <button
+              key={w}
+              onClick={() => setWindowFilter(w)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                windowFilter === w
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {w === 'all' ? 'All time' : w}
+            </button>
+          ))}
+        </div>
+        {(search || providerFilter || windowFilter !== 'all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setSearch(''); setProviderFilter(null); setWindowFilter('all'); }}
+            className="h-8 text-[12px] text-muted-foreground"
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
       {summary && (
@@ -399,11 +500,16 @@ export default function TracesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Recent traces</CardTitle>
+          <CardTitle className="text-sm flex items-center justify-between gap-2">
+            <span>All traces</span>
+            <span className="text-[11px] text-muted-foreground font-normal tabular-nums">
+              showing {filteredTraces.length.toLocaleString()}
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="divide-y">
-            {traces.map((t) => (
+          <div className="divide-y max-h-[70vh] overflow-auto scrollbar-thin">
+            {filteredTraces.map((t) => (
               <div
                 key={t.id}
                 onClick={() => openTrace(t.id)}
@@ -426,9 +532,11 @@ export default function TracesPage() {
                 </div>
               </div>
             ))}
-            {traces.length === 0 && (
+            {filteredTraces.length === 0 && (
               <p className="p-6 text-[12px] text-muted-foreground text-center">
-                No traces yet. Run <code>spool sync</code> to ingest.
+                {traces.length === 0
+                  ? <>No traces yet. Run <code>spool sync</code> to ingest.</>
+                  : 'No traces match your filters.'}
               </p>
             )}
           </div>
