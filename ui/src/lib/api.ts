@@ -39,7 +39,8 @@ export function formatDate(d: string | null): string {
   });
 }
 
-export function cleanProject(p: string): string {
+export function cleanProject(p: string | null | undefined): string {
+  if (!p) return '';
   return p
     .replace(/-Users-[^-]+-/g, '~/')
     .replace(/-/g, '/');
