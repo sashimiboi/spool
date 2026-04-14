@@ -118,7 +118,12 @@ export default function AnalyticsPage() {
         cellRenderer: (p: any) => {
           const color = PROVIDER_COLORS[p.value] || '#8b8b9e';
           const label = PROVIDER_LABELS[p.value] || p.value;
-          return `<div style="display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>${label}</div>`;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+              <span>{label}</span>
+            </div>
+          );
         },
       },
       { field: 'sessions', headerName: 'Sessions', sortable: true, filter: 'agNumberColumnFilter', type: 'rightAligned', flex: 1, minWidth: 90 },
