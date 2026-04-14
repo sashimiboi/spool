@@ -14,9 +14,9 @@ dependencies = [
     "rich>=13.0",
     "httpx>=0.27",
     "anthropic>=0.40",
-    "strands-agents>=1.35",
+    "strands-agents[ollama]>=1.35",
     "strands-agents-evals>=0.1",
-    "ollama>=0.6",
+    "mcp>=1.27",
 ]
 
 [project.scripts]

@@ -28,24 +28,35 @@ docker-compose up -d   # or `docker compose up -d` if using Docker Compose V2
 
 #docker-compose up -d  
 
-# 2. Install Python backend
+# 2. Install Python backend (pulls strands-agents, strands-agents-evals,
+#    ollama, mcp, and everything else declared in pyproject.toml).
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# 3. Check which providers are detected
+# 3. Install Ollama + pull the chat and judge models so the chat agent
+#    and Strands eval rubrics work out of the box with no API key.
+brew install ollama
+ollama serve &
+ollama pull gemma3:4b    # chat agent default
+ollama pull qwen2.5:7b   # tool-capable Strands eval judge
+
+# 4. Check which providers are detected
 spool init
 
-# 4. Sync sessions from all detected providers
+# 5. Sync sessions from all detected providers
 spool sync              # with embeddings (slower, enables semantic search)
 spool sync --no-embed   # without embeddings (faster, for initial setup)
 
-# 5. Install UI dependencies
+# 6. Install UI dependencies
 cd ui && npm install && cd ..
 
-# 6. Start everything
-spool serve &       # API on http://127.0.0.1:3002
-cd ui && npm run dev # UI on http://localhost:3003
+# 7. Start everything
+spool ui             # API on :3002, GUI on :3003
+
+# 8. (Optional) Register the Spool MCP server with Claude Code so agents
+#    can query your session history via MCP.
+claude mcp add spool $(pwd)/.venv/bin/spool mcp
 ```
 
 Open **http://localhost:3003** and you're in.
