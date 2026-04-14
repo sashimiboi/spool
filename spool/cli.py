@@ -266,6 +266,120 @@ def serve(host, port):
     uvicorn.run(app, host=h, port=p, log_level="warning")
 
 
+@cli.group()
+def otel():
+    """Ingest OTel/Strands spans from external sources into Spool."""
+    pass
+
+
+@otel.command("ingest")
+@click.option("--file", "path", required=True, type=click.Path(exists=True), help="OTLP JSON export file")
+@click.option("--provider", "provider_id", default="otel-remote", help="Provider id to tag the trace with")
+@click.option("--project", default=None, help="Project name")
+def otel_ingest(path, provider_id, project):
+    """Ingest an OTLP/JSON spans file as a Spool trace."""
+    from spool.remote_otel import ingest_otlp_json_file
+    try:
+        trace_id = ingest_otlp_json_file(path, provider_id=provider_id, project=project)
+        console.print(f"[green]Ingested:[/green] {trace_id}")
+    except Exception as e:
+        console.print(f"[red]Ingest failed:[/red] {e}")
+        raise SystemExit(1)
+
+
+@cli.group()
+def experiment():
+    """Create and run Strands experiments (cases + evaluators)."""
+    pass
+
+
+@experiment.command("create")
+@click.option("--file", "path", required=True, type=click.Path(exists=True), help="Path to a JSON spec")
+def experiment_create(path):
+    """Register an experiment from a JSON file."""
+    from spool.experiments import load_spec_from_file, create_experiment
+    spec = load_spec_from_file(path)
+    eid = create_experiment(spec)
+    console.print(f"[green]Experiment created: {eid}[/green] ({spec.name})")
+
+
+@experiment.command("list")
+def experiment_list():
+    """List experiments."""
+    from spool.experiments import list_experiments
+    rows = list_experiments()
+    if not rows:
+        console.print("[yellow]No experiments yet. Create one with 'spool experiment create --file ...'[/yellow]")
+        return
+    table = Table(title="Experiments")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Cases", justify="right")
+    table.add_column("Evaluators", justify="right")
+    table.add_column("Created", style="dim")
+    for r in rows:
+        table.add_row(
+            r["id"], r["name"],
+            str(r["case_count"]), str(r["evaluator_count"]),
+            str(r["created_at"])[:19],
+        )
+    console.print(table)
+
+
+@experiment.command("run")
+@click.option("--id", "experiment_id", required=True, help="Experiment id")
+def experiment_run(experiment_id):
+    """Run an experiment and persist the report."""
+    from spool.experiments import run_experiment, load_run
+    console.print(f"[bold]Running experiment {experiment_id}...[/bold]")
+    try:
+        run_id = run_experiment(experiment_id)
+    except Exception as e:
+        console.print(f"[red]Run failed:[/red] {e}")
+        raise SystemExit(1)
+    run = load_run(run_id)
+    console.print(f"[green]Run complete: {run_id}[/green]")
+    if run and run.get("overall_scores"):
+        console.print("Scores:")
+        for name, score in run["overall_scores"].items():
+            console.print(f"  - {name}: {score}")
+
+
+@experiment.command("show")
+@click.option("--run", "run_id", required=True, help="Run id")
+def experiment_show(run_id):
+    """Show the report for a past run."""
+    from spool.experiments import load_run
+    run = load_run(run_id)
+    if not run:
+        console.print(f"[red]Run not found: {run_id}[/red]")
+        return
+    console.print(f"[bold]Run {run_id}[/bold] ({run['status']})")
+    console.print(f"Experiment: {run['experiment_id']}")
+    console.print(f"Started:    {run['started_at']}")
+    console.print(f"Finished:   {run['finished_at']}")
+    if run.get("error"):
+        console.print(f"[red]Error:[/red] {run['error']}")
+    if run.get("overall_scores"):
+        table = Table(title="Overall scores")
+        table.add_column("Evaluator", style="cyan")
+        table.add_column("Score", justify="right")
+        for k, v in run["overall_scores"].items():
+            table.add_row(k, f"{v:.3f}" if isinstance(v, (int, float)) else str(v))
+        console.print(table)
+
+
+@cli.command()
+def mcp():
+    """Launch the Spool MCP server over stdio.
+
+    Wire this into your MCP client config (Claude Code's mcpServers,
+    Codex, Cursor, etc.) so agents can query Spool as a context source.
+    """
+    from spool.mcp_server import serve_stdio
+    serve_stdio()
+
+
 @cli.command()
 def ui():
     """Launch both the API server and Next.js UI."""
