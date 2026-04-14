@@ -1,5 +1,6 @@
 """Ingestion pipeline - parse AI coding sessions from multiple providers and store in pgvector."""
 
+import json
 from pathlib import Path
 
 from rich.console import Console
@@ -10,6 +11,16 @@ from spool.db import get_connection
 from spool.parser import ParsedSession
 from spool.embeddings import embed_texts, chunk_text
 from spool.providers import get_provider, get_all_providers
+from spool.tracing import Trace, compute_trace_metrics
+
+
+def _scrub(s):
+    """Strip NUL bytes PostgreSQL text cols can't hold."""
+    if s is None:
+        return None
+    if isinstance(s, str):
+        return s.replace("\x00", "")
+    return s
 
 console = Console()
 
@@ -56,11 +67,11 @@ def _store_session(conn, session: ParsedSession):
            ended_at = EXCLUDED.ended_at,
            title = EXCLUDED.title""",
         (
-            session.session_id, session.provider_id, session.project, session.cwd,
-            session.git_branch, session.started_at, session.ended_at, session.message_count,
+            session.session_id, session.provider_id, _scrub(session.project), _scrub(session.cwd),
+            _scrub(session.git_branch), session.started_at, session.ended_at, session.message_count,
             session.tool_call_count, session.estimated_input_tokens,
-            session.estimated_output_tokens, cost, session.claude_version,
-            session.model, session.title,
+            session.estimated_output_tokens, cost, _scrub(session.claude_version),
+            _scrub(session.model), _scrub(session.title),
         ),
     )
 
@@ -68,16 +79,15 @@ def _store_session(conn, session: ParsedSession):
     for msg in session.messages:
         if not msg.uuid:
             continue
-        import json
         conn.execute(
             """INSERT INTO messages (id, session_id, role, content, timestamp, tools_used,
                cwd, git_branch, estimated_tokens)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (id) DO NOTHING""",
             (
-                msg.uuid, session.session_id, msg.role, msg.content,
-                msg.timestamp, json.dumps(msg.tools_used), msg.cwd,
-                msg.git_branch, msg.estimated_tokens,
+                msg.uuid, session.session_id, msg.role, _scrub(msg.content),
+                msg.timestamp, json.dumps(msg.tools_used), _scrub(msg.cwd),
+                _scrub(msg.git_branch), msg.estimated_tokens,
             ),
         )
 
@@ -86,7 +96,105 @@ def _store_session(conn, session: ParsedSession):
             conn.execute(
                 """INSERT INTO tool_calls (session_id, message_id, tool_name, timestamp)
                    VALUES (%s, %s, %s, %s)""",
-                (session.session_id, msg.uuid, tool_name, msg.timestamp),
+                (session.session_id, msg.uuid, _scrub(tool_name), msg.timestamp),
+            )
+
+
+def _store_trace(conn, trace: Trace):
+    """Persist a Trace + its spans + span_events.
+
+    Idempotent on trace_id: we DELETE existing spans/events for this trace
+    (FK CASCADE handles span_events + evals rows), then re-insert. The
+    traces row is upserted so aggregate metrics stay fresh.
+    """
+    if trace is None or not trace.spans:
+        return
+
+    m = compute_trace_metrics(trace)
+
+    # Delete existing spans (cascades to span_events and evals).
+    conn.execute("DELETE FROM spans WHERE trace_id = %s", (trace.id,))
+
+    # Upsert the trace row.
+    conn.execute(
+        """INSERT INTO traces (
+            id, session_id, provider_id, project, title,
+            started_at, ended_at, duration_ms,
+            span_count, agent_count, tool_count, llm_count, error_count,
+            total_input_tokens, total_output_tokens,
+            total_cache_read_tokens, total_cache_write_tokens,
+            total_cost_usd, cwd, git_branch, model,
+            vendor_count, top_vendors, attrs
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            session_id = EXCLUDED.session_id,
+            provider_id = EXCLUDED.provider_id,
+            project = EXCLUDED.project,
+            title = EXCLUDED.title,
+            started_at = EXCLUDED.started_at,
+            ended_at = EXCLUDED.ended_at,
+            duration_ms = EXCLUDED.duration_ms,
+            span_count = EXCLUDED.span_count,
+            agent_count = EXCLUDED.agent_count,
+            tool_count = EXCLUDED.tool_count,
+            llm_count = EXCLUDED.llm_count,
+            error_count = EXCLUDED.error_count,
+            total_input_tokens = EXCLUDED.total_input_tokens,
+            total_output_tokens = EXCLUDED.total_output_tokens,
+            total_cache_read_tokens = EXCLUDED.total_cache_read_tokens,
+            total_cache_write_tokens = EXCLUDED.total_cache_write_tokens,
+            total_cost_usd = EXCLUDED.total_cost_usd,
+            cwd = EXCLUDED.cwd,
+            git_branch = EXCLUDED.git_branch,
+            model = EXCLUDED.model,
+            vendor_count = EXCLUDED.vendor_count,
+            top_vendors = EXCLUDED.top_vendors,
+            attrs = EXCLUDED.attrs
+        """,
+        (
+            trace.id, trace.session_id, trace.provider_id,
+            _scrub(trace.project), _scrub(trace.title),
+            trace.started_at, trace.ended_at, trace.duration_ms,
+            m["span_count"], m["agent_count"], m["tool_count"], m["llm_count"], m["error_count"],
+            m["input_tokens"], m["output_tokens"],
+            m["cache_read_tokens"], m["cache_write_tokens"],
+            m["cost_usd"], _scrub(trace.cwd), _scrub(trace.git_branch), _scrub(trace.model),
+            m["vendor_count"], json.dumps(m["top_vendors"]),
+            json.dumps(trace.attrs or {}, default=str),
+        ),
+    )
+
+    # Insert spans in sequence order so parent rows always exist first.
+    for span in sorted(trace.spans, key=lambda s: s.sequence):
+        conn.execute(
+            """INSERT INTO spans (
+                id, trace_id, parent_id, kind, name, status,
+                started_at, ended_at, duration_ms, depth, sequence,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                cost_usd, model, tool_name, tool_input, tool_output, tool_is_error,
+                agent_type, agent_prompt, vendor, category, attrs
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                span.id, span.trace_id, span.parent_id, span.kind.value, _scrub(span.name), span.status.value,
+                span.started_at, span.ended_at, span.duration_ms, span.depth, span.sequence,
+                span.input_tokens, span.output_tokens, span.cache_read_tokens, span.cache_write_tokens,
+                span.cost_usd, span.model, _scrub(span.tool_name),
+                json.dumps(span.tool_input, default=str) if span.tool_input is not None else None,
+                _scrub(span.tool_output), span.tool_is_error,
+                _scrub(span.agent_type), _scrub(span.agent_prompt),
+                _scrub(span.vendor), _scrub(span.category),
+                json.dumps(span.attrs or {}, default=str),
+            ),
+        )
+
+        for ev in span.events:
+            conn.execute(
+                """INSERT INTO span_events (span_id, trace_id, name, timestamp, attrs)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (span.id, trace.id, ev.name, ev.timestamp, json.dumps(ev.attrs or {})),
             )
 
 
@@ -212,6 +320,8 @@ def sync(embed: bool = True, provider_filter: str | None = None):
                 sessions = provider.parse_session_file(f)
                 for session in sessions:
                     _store_session(conn, session)
+                    if session.trace is not None:
+                        _store_trace(conn, session.trace)
                     total_messages += session.message_count
                     total_sessions += 1
 

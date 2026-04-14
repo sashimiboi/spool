@@ -6,6 +6,8 @@ from spool.providers.codex import CodexProvider
 from spool.providers.cursor import CursorProvider
 from spool.providers.copilot import CopilotProvider
 from spool.providers.windsurf import WindsurfProvider
+from spool.providers.kiro import KiroProvider
+from spool.providers.antigravity import AntigravityProvider
 
 __all__ = [
     "Provider",
@@ -15,6 +17,8 @@ __all__ = [
     "CursorProvider",
     "CopilotProvider",
     "WindsurfProvider",
+    "KiroProvider",
+    "AntigravityProvider",
 ]
 
 

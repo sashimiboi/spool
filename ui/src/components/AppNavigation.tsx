@@ -6,18 +6,11 @@ import { useTheme } from '@/components/ThemeProvider';
 import {
   LayoutDashboard, List, Search, BarChart3, Link2,
   ChevronLeft, ChevronRight, MessageCircle, Settings,
-  Sun, Moon, Monitor,
+  Sun, Moon, Monitor, Activity, ClipboardList,
 } from 'lucide-react';
 
 function SpoolLogo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 147 147" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <path d="M87.4235 69.6C87.4235 61.6 79.4235 55.6 71.4235 57.6C61.4235 59.6 57.4235 69.6 61.4235 77.6C67.4235 89.6 88.4235 94.1 98.4235 86.1C116.424 75.1 108.251 47.6 98.4235 40.1C79.4235 25.6 53.4235 33.6 43.4235 47.6C31.4235 63.6 33.4235 93.6 51.4235 105.6C71.4235 119.6 105.424 115.6 119.424 95.6C133.424 73.6 131.424 37.6 109.424 21.6C87.4235 5.6 45.4235 9.6 27.4235 33.6C9.42353 59.6 9.92354 99.1 35.9235 119.1C51.4235 129.1 73.4235 131.1 81.4235 131.1" stroke="currentColor" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M99.9235 126.6H93.9235C93.0951 126.6 92.4235 127.272 92.4235 128.1V134.1C92.4235 134.928 93.0951 135.6 93.9235 135.6H99.9235C100.752 135.6 101.424 134.928 101.424 134.1V128.1C101.424 127.272 100.752 126.6 99.9235 126.6Z" fill="currentColor"/>
-      <path d="M114.924 126.6H108.924C108.095 126.6 107.424 127.272 107.424 128.1V134.1C107.424 134.928 108.095 135.6 108.924 135.6H114.924C115.752 135.6 116.424 134.928 116.424 134.1V128.1C116.424 127.272 115.752 126.6 114.924 126.6Z" fill="currentColor"/>
-      <path d="M129.924 126.6H123.924C123.095 126.6 122.424 127.272 122.424 128.1V134.1C122.424 134.928 123.095 135.6 123.924 135.6H129.924C130.752 135.6 131.424 134.928 131.424 134.1V128.1C131.424 127.272 130.752 126.6 129.924 126.6Z" fill="currentColor"/>
-    </svg>
-  );
+  return <img src="/logo.svg" alt="Spool" className={className} />;
 }
 
 interface NavItem {
@@ -44,6 +37,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Insights',
     items: [
+      { url: '/traces', label: 'Traces', icon: Activity, match: (p) => p.startsWith('/traces') },
+      { url: '/evals', label: 'Evals', icon: ClipboardList, match: (p) => p.startsWith('/evals') },
       { url: '/analytics', label: 'Analytics', icon: BarChart3, match: (p) => p.startsWith('/analytics') },
       { url: '/chat', label: 'Chat', icon: MessageCircle, match: (p) => p.startsWith('/chat') },
     ],

@@ -200,6 +200,56 @@ def stats(week, days):
         console.print(table)
 
 
+@cli.group()
+def eval():
+    """Run eval rubrics over traces/spans."""
+    pass
+
+
+@eval.command("list")
+def eval_list():
+    """List all eval rubrics."""
+    from spool.db import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, name, kind, target_kind, description FROM eval_rubrics ORDER BY id"
+    ).fetchall()
+    conn.close()
+    table = Table(title="Eval Rubrics")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Kind")
+    table.add_column("Target")
+    table.add_column("Description", style="dim")
+    for r in rows:
+        table.add_row(r["id"], r["name"], r["kind"], r["target_kind"], r["description"] or "")
+    console.print(table)
+
+
+@eval.command("run")
+@click.option("--rubric", required=True, help="Rubric id")
+@click.option("--trace", default=None, help="Run against a single trace id")
+@click.option("--days", default=None, type=int, help="Run against all traces from the last N days")
+def eval_run(rubric, trace, days):
+    """Run a rubric against one trace or a batch."""
+    from spool.evals import run_rubric, run_rubric_bulk
+    from datetime import datetime, timezone, timedelta
+
+    if trace:
+        result = run_rubric(rubric, trace)
+        if result is None:
+            console.print(f"[yellow]No eval recorded for {trace}[/yellow]")
+        else:
+            console.print(f"[green]Eval {result} recorded for {trace}[/green]")
+        return
+
+    since = None
+    if days:
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = run_rubric_bulk(rubric, since=since)
+    console.print(result)
+
+
 @cli.command()
 @click.option("--host", default=None, help="Host to bind to")
 @click.option("--port", default=None, type=int, help="Port to bind to")

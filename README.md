@@ -2,7 +2,7 @@
 
 Local session tracker and semantic search for AI coding assistants.
 
-Track your AI coding sessions across **Claude Code**, **OpenAI Codex CLI**, **GitHub Copilot**, **Cursor**, and **Windsurf** — all in one place. Get usage stats, cost estimates, per-provider breakdowns, semantic search via pgvector, and a built-in AI chat agent to explore your history.
+Track your AI coding sessions across **Claude Code**, **OpenAI Codex CLI**, **GitHub Copilot**, **Cursor**, **Windsurf**, **Kiro**, and **Google Antigravity**, all in one place. Get usage stats, cost estimates, per-provider breakdowns, semantic search via pgvector, and a built-in AI chat agent to explore your history.
 
 **Website:** [spooling.ai](https://spooling.ai)
 
@@ -113,7 +113,7 @@ spool watch
 
 ### `spool serve`
 
-Start the API server only (for when you want to run the UI separately).
+Start the API server only (for when you want to run the GUI separately).
 
 ```bash
 spool serve                    # Default: http://127.0.0.1:3002
@@ -131,21 +131,21 @@ spool ui
 
 ---
 
-## Web UI
+## GUI
 
-The web dashboard runs on **http://localhost:3003** and includes:
+The Spool GUI runs on **http://localhost:3003** and includes:
 
 | Page | Description |
 |------|-------------|
 | **Dashboard** | Overview stats, per-provider breakdown, daily activity chart, projects, top tools, recent sessions |
 | **Sessions** | Browse all sessions with provider labels, filtering, click into any session for full conversation view |
 | **Search** | Semantic search across all session history with similarity scores |
-| **Analytics** | Charts for daily usage, cost trends, token usage, tool distribution — filterable by provider (AG Charts) |
+| **Analytics** | Charts for daily usage, cost trends, token usage, tool distribution, filterable by provider (AG Charts) |
 | **Chat** | AI assistant that can answer questions about your session data (RAG-powered) |
 | **Connections** | Connect/disconnect AI coding tools (Claude Code, Codex, Copilot, Cursor, Windsurf) |
 | **Settings** | Configure the AI chat provider (Ollama or Anthropic) |
 
-### Running the UI
+### Running the GUI
 
 ```bash
 # Terminal 1: API server
@@ -178,11 +178,11 @@ ollama serve
 ollama pull gemma3:4b
 ```
 
-Go to **Settings** in the UI and select Ollama. The model will auto-detect.
+Go to **Settings** in the GUI and select Ollama. The model will auto-detect.
 
 ### Option B: Anthropic API (bring your own key)
 
-Go to **Settings** in the UI, select Anthropic, and paste your API key from [console.anthropic.com](https://console.anthropic.com).
+Go to **Settings** in the GUI, select Anthropic, and paste your API key from [console.anthropic.com](https://console.anthropic.com).
 
 Available models: Sonnet, Haiku, Opus.
 
@@ -232,7 +232,7 @@ spool/
 |---------|------|
 | PostgreSQL | 5434 |
 | API Server | 3002 |
-| Web UI | 3003 |
+| GUI | 3003 |
 
 ---
 
@@ -262,6 +262,8 @@ All optional - defaults work out of the box for local development.
 | **GitHub Copilot** | `~/Library/Application Support/Code/User/workspaceStorage/` | Chat session JSON from VS Code |
 | **Cursor** | `~/Library/Application Support/Cursor/User/workspaceStorage/` | Chat and composer sessions from SQLite |
 | **Windsurf** | `~/Library/Application Support/Windsurf/User/workspaceStorage/` | Chat and Cascade sessions from SQLite |
+| **Kiro** | `~/Library/Application Support/Kiro/User/workspaceStorage/` | AWS Kiro chat and agent sessions from SQLite |
+| **Google Antigravity** | `~/Library/Application Support/Antigravity/User/workspaceStorage/` | Antigravity chat and agent sessions from SQLite |
 
 Run `spool init` to see which providers are detected on your system.
 

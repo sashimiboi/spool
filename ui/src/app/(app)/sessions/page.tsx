@@ -34,6 +34,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   'copilot': 'Copilot',
   'cursor': 'Cursor',
   'windsurf': 'Windsurf',
+  'kiro': 'Kiro',
+  'antigravity': 'Antigravity',
 };
 
 interface SessionDetail {

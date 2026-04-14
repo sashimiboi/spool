@@ -8,6 +8,7 @@ from pathlib import Path
 from spool.config import CHARS_PER_TOKEN
 from spool.parser import ParsedSession, ParsedMessage
 from spool.providers.base import Provider
+from spool.tracing import build_flat_trace_from_messages
 
 VSCODE_BASE = Path.home() / "Library" / "Application Support" / "Code" / "User"
 VSCODE_WORKSPACE_STORAGE = VSCODE_BASE / "workspaceStorage"
@@ -42,9 +43,19 @@ class CopilotProvider(Provider):
             session = _parse_copilot_jsonl(file_path)
         else:
             session = _parse_copilot_json(file_path)
-        if session:
-            return [session]
-        return []
+        if not session:
+            return []
+        session.trace = build_flat_trace_from_messages(
+            provider_id="copilot",
+            session_id=session.session_id,
+            project=session.project,
+            title=session.title,
+            messages=session.messages,
+            cwd=session.cwd,
+            git_branch=session.git_branch,
+            model=session.model,
+        )
+        return [session]
 
 
 def _get_workspace_project(file_path: Path) -> str:

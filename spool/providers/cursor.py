@@ -9,6 +9,7 @@ from pathlib import Path
 from spool.config import CHARS_PER_TOKEN
 from spool.parser import ParsedSession, ParsedMessage
 from spool.providers.base import Provider
+from spool.tracing import build_flat_trace_from_messages
 
 CURSOR_BASE = Path.home() / "Library" / "Application Support" / "Cursor" / "User"
 CURSOR_WORKSPACE_STORAGE = CURSOR_BASE / "workspaceStorage"
@@ -45,6 +46,17 @@ class CursorProvider(Provider):
         sessions.extend(_parse_chat_data(file_path))
         # Try composer data from cursorDiskKV
         sessions.extend(_parse_composer_data(file_path))
+        for s in sessions:
+            s.trace = build_flat_trace_from_messages(
+                provider_id="cursor",
+                session_id=s.session_id,
+                project=s.project,
+                title=s.title,
+                messages=s.messages,
+                cwd=s.cwd,
+                git_branch=s.git_branch,
+                model=s.model,
+            )
         return sessions
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from spool.config import CHARS_PER_TOKEN
 from spool.parser import ParsedSession, ParsedMessage
 from spool.providers.base import Provider
+from spool.tracing import build_flat_trace_from_messages
 
 
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
@@ -32,9 +33,19 @@ class CodexProvider(Provider):
 
     def parse_session_file(self, file_path: Path) -> list[ParsedSession]:
         session = _parse_codex_session(file_path)
-        if session:
-            return [session]
-        return []
+        if not session:
+            return []
+        session.trace = build_flat_trace_from_messages(
+            provider_id="codex",
+            session_id=session.session_id,
+            project=session.project,
+            title=session.title,
+            messages=session.messages,
+            cwd=session.cwd,
+            git_branch=session.git_branch,
+            model=session.model,
+        )
+        return [session]
 
 
 def _extract_session_id(filename: str) -> str:

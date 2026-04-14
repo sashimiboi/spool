@@ -9,6 +9,7 @@ from pathlib import Path
 from spool.config import CHARS_PER_TOKEN
 from spool.parser import ParsedSession, ParsedMessage
 from spool.providers.base import Provider
+from spool.tracing import build_flat_trace_from_messages
 
 WINDSURF_BASE = Path.home() / "Library" / "Application Support" / "Windsurf" / "User"
 WINDSURF_WORKSPACE_STORAGE = WINDSURF_BASE / "workspaceStorage"
@@ -43,6 +44,17 @@ class WindsurfProvider(Provider):
         sessions = []
         sessions.extend(_parse_chat_data(file_path))
         sessions.extend(_parse_agent_data(file_path))
+        for s in sessions:
+            s.trace = build_flat_trace_from_messages(
+                provider_id="windsurf",
+                session_id=s.session_id,
+                project=s.project,
+                title=s.title,
+                messages=s.messages,
+                cwd=s.cwd,
+                git_branch=s.git_branch,
+                model=s.model,
+            )
         return sessions
 
 

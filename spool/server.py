@@ -7,6 +7,10 @@ from pydantic import BaseModel
 from spool.stats import get_overview, get_daily_stats, get_session_detail, get_provider_breakdown
 from spool.search import search as do_search
 from spool.db import get_connection
+from spool.tracing import Trace, Span, SpanKind, SpanStatus, SpanEvent
+from spool.ingest import _store_trace, _store_session
+from spool.parser import ParsedSession
+from datetime import datetime
 
 app = FastAPI(title="Spool", version="0.1.0")
 
@@ -115,6 +119,20 @@ PROVIDER_TEMPLATES = {
         "default_path": "~/Library/Application Support/Windsurf/User/workspaceStorage",
         "description": "Codeium's Windsurf editor. Tracks chat and Cascade agent sessions from SQLite.",
         "status_hint": "Auto-detected from Windsurf Application Support.",
+    },
+    "kiro": {
+        "name": "Kiro",
+        "icon": "kiro",
+        "default_path": "~/Library/Application Support/Kiro/User/workspaceStorage",
+        "description": "AWS Kiro — agent-first VS Code fork. Tracks chat and agent sessions from SQLite.",
+        "status_hint": "Auto-detected from Kiro Application Support.",
+    },
+    "antigravity": {
+        "name": "Google Antigravity",
+        "icon": "antigravity",
+        "default_path": "~/Library/Application Support/Antigravity/User/workspaceStorage",
+        "description": "Google's Antigravity agent IDE. Tracks chat and agent sessions from SQLite (VS Code fork layout).",
+        "status_hint": "Auto-detected from Antigravity Application Support.",
     },
 }
 
@@ -258,6 +276,415 @@ async def api_delete_provider(provider_id: str):
     conn.commit()
     conn.close()
     return {"status": "disconnected"}
+
+
+# --- Traces / Spans / Evals ---
+
+@app.get("/api/traces")
+async def api_traces(
+    limit: int = Query(default=50),
+    provider: str | None = Query(default=None),
+    project: str | None = Query(default=None),
+):
+    conn = get_connection()
+    clauses = []
+    params: list = []
+    if provider:
+        clauses.append("provider_id = %s")
+        params.append(provider)
+    if project:
+        clauses.append("project = %s")
+        params.append(project)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    rows = conn.execute(
+        f"""SELECT id, session_id, provider_id, project, title, started_at, ended_at,
+                   duration_ms, span_count, agent_count, tool_count, llm_count, error_count,
+                   total_input_tokens, total_output_tokens, total_cost_usd, model
+           FROM traces {where} ORDER BY started_at DESC LIMIT %s""",
+        tuple(params),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/traces/{trace_id}")
+async def api_trace_detail(trace_id: str):
+    conn = get_connection()
+    trace = conn.execute("SELECT * FROM traces WHERE id = %s", (trace_id,)).fetchone()
+    if not trace:
+        conn.close()
+        return {"error": "trace not found"}
+
+    spans = conn.execute(
+        """SELECT id, trace_id, parent_id, kind, name, status,
+                  started_at, ended_at, duration_ms, depth, sequence,
+                  input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                  cost_usd, model, tool_name, tool_input, tool_output, tool_is_error,
+                  agent_type, agent_prompt, attrs
+           FROM spans WHERE trace_id = %s ORDER BY sequence""",
+        (trace_id,),
+    ).fetchall()
+
+    evals = conn.execute(
+        """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.span_id, e.score,
+                  e.passed, e.label, e.rationale, e.run_at
+           FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
+           WHERE e.trace_id = %s ORDER BY e.run_at DESC""",
+        (trace_id,),
+    ).fetchall()
+    conn.close()
+
+    return {
+        "trace": dict(trace),
+        "spans": [dict(s) for s in spans],
+        "evals": [dict(e) for e in evals],
+    }
+
+
+@app.get("/api/session/{session_id}/trace")
+async def api_session_trace(session_id: str):
+    """Look up a trace by its session_id (convenience for the session detail UI)."""
+    conn = get_connection()
+    row = conn.execute("SELECT id FROM traces WHERE session_id = %s", (session_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"error": "no trace for session"}
+    return await api_trace_detail(row["id"])
+
+
+@app.get("/api/spans/{span_id}")
+async def api_span_detail(span_id: str):
+    conn = get_connection()
+    span = conn.execute("SELECT * FROM spans WHERE id = %s", (span_id,)).fetchone()
+    if not span:
+        conn.close()
+        return {"error": "span not found"}
+    events = conn.execute(
+        "SELECT name, timestamp, attrs FROM span_events WHERE span_id = %s ORDER BY timestamp",
+        (span_id,),
+    ).fetchall()
+    evals = conn.execute(
+        """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.score, e.passed,
+                  e.label, e.rationale, e.run_at
+           FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
+           WHERE e.span_id = %s ORDER BY e.run_at DESC""",
+        (span_id,),
+    ).fetchall()
+    conn.close()
+    return {
+        "span": dict(span),
+        "events": [dict(e) for e in events],
+        "evals": [dict(e) for e in evals],
+    }
+
+
+@app.get("/api/evals/rubrics")
+async def api_eval_rubrics():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, name, description, kind, target_kind, config FROM eval_rubrics ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/evals")
+async def api_evals(limit: int = Query(default=100), rubric: str | None = Query(default=None)):
+    conn = get_connection()
+    if rubric:
+        rows = conn.execute(
+            """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.trace_id, e.span_id,
+                      e.score, e.passed, e.label, e.rationale, e.run_at
+               FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
+               WHERE e.rubric_id = %s ORDER BY e.run_at DESC LIMIT %s""",
+            (rubric, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT e.id, e.rubric_id, r.name AS rubric_name, e.trace_id, e.span_id,
+                      e.score, e.passed, e.label, e.rationale, e.run_at
+               FROM evals e LEFT JOIN eval_rubrics r ON r.id = e.rubric_id
+               ORDER BY e.run_at DESC LIMIT %s""",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+class SpanIn(BaseModel):
+    id: str | None = None
+    parent_id: str | None = None
+    kind: str  # session|agent|tool|llm_call|eval|step
+    name: str
+    status: str = "ok"
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    sequence: int | None = None
+    depth: int | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cost_usd: float = 0.0
+    model: str | None = None
+    tool_name: str | None = None
+    tool_input: dict | None = None
+    tool_output: str | None = None
+    tool_is_error: bool | None = None
+    agent_type: str | None = None
+    agent_prompt: str | None = None
+    vendor: str | None = None
+    category: str | None = None
+    attrs: dict = {}
+
+
+class TraceIngest(BaseModel):
+    id: str | None = None
+    session_id: str
+    provider_id: str
+    project: str | None = None
+    title: str | None = None
+    cwd: str | None = None
+    git_branch: str | None = None
+    model: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    attrs: dict = {}
+    spans: list[SpanIn]
+
+
+def _rehydrate_trace(payload: TraceIngest) -> Trace:
+    """Turn a validated TraceIngest into a Trace with Span objects."""
+    from spool.classifiers import classify
+
+    trace_id = payload.id or f"trace-{payload.session_id}"
+    trace = Trace(
+        id=trace_id,
+        session_id=payload.session_id,
+        provider_id=payload.provider_id,
+        project=payload.project,
+        title=payload.title,
+        cwd=payload.cwd,
+        git_branch=payload.git_branch,
+        model=payload.model,
+        started_at=payload.started_at,
+        ended_at=payload.ended_at,
+        attrs=dict(payload.attrs or {}),
+    )
+
+    # First pass: materialize spans without children
+    span_objs: list[Span] = []
+    for i, s in enumerate(payload.spans):
+        try:
+            kind = SpanKind(s.kind)
+        except ValueError:
+            kind = SpanKind.STEP
+        try:
+            status = SpanStatus(s.status)
+        except ValueError:
+            status = SpanStatus.OK
+
+        vendor = s.vendor
+        category = s.category
+        if kind == SpanKind.TOOL and s.tool_name and not (vendor and category):
+            cls = classify(s.tool_name)
+            vendor = vendor or cls.vendor
+            category = category or cls.category
+        if kind == SpanKind.AGENT and not vendor:
+            vendor = "agent"
+            category = category or "agent"
+
+        span = Span(
+            id=s.id or f"span-{trace_id}-{i}",
+            trace_id=trace_id,
+            parent_id=s.parent_id,
+            kind=kind,
+            name=s.name,
+            status=status,
+            started_at=s.started_at,
+            ended_at=s.ended_at,
+            depth=s.depth or 0,
+            sequence=s.sequence if s.sequence is not None else i,
+            input_tokens=s.input_tokens,
+            output_tokens=s.output_tokens,
+            cache_read_tokens=s.cache_read_tokens,
+            cache_write_tokens=s.cache_write_tokens,
+            cost_usd=s.cost_usd,
+            model=s.model,
+            tool_name=s.tool_name,
+            tool_input=s.tool_input,
+            tool_output=s.tool_output,
+            tool_is_error=s.tool_is_error,
+            agent_type=s.agent_type,
+            agent_prompt=s.agent_prompt,
+            vendor=vendor,
+            category=category,
+            attrs=dict(s.attrs or {}),
+        )
+        span_objs.append(span)
+
+    # Compute depth if clients didn't set it.
+    by_id = {sp.id: sp for sp in span_objs}
+    def _depth(sp: Span, seen: set) -> int:
+        if sp.parent_id and sp.parent_id in by_id and sp.parent_id not in seen:
+            seen.add(sp.parent_id)
+            return _depth(by_id[sp.parent_id], seen) + 1
+        return 0
+    for sp in span_objs:
+        if sp.depth == 0 and sp.parent_id:
+            sp.depth = _depth(sp, {sp.id})
+
+    # Pick root: first SESSION span, else first without parent_id.
+    root = next((sp for sp in span_objs if sp.kind == SpanKind.SESSION), None)
+    if root is None:
+        root = next((sp for sp in span_objs if not sp.parent_id), None)
+    trace.root = root
+
+    # Infer trace start/end if missing.
+    if not trace.started_at:
+        starts = [sp.started_at for sp in span_objs if sp.started_at]
+        if starts:
+            trace.started_at = min(starts)
+    if not trace.ended_at:
+        ends = [sp.ended_at for sp in span_objs if sp.ended_at]
+        if ends:
+            trace.ended_at = max(ends)
+
+    trace.spans = span_objs
+    return trace
+
+
+@app.post("/api/traces/ingest")
+async def api_traces_ingest(body: TraceIngest):
+    """Accept a Trace JSON payload from a third-party agent/SDK.
+
+    Writes to the same traces/spans tables used by provider-based sync.
+    Idempotent on trace id; re-posting overwrites spans for that trace.
+    Also creates a lightweight row in `sessions` so the legacy session
+    detail UI can find it.
+    """
+    if not body.spans:
+        return {"status": "error", "message": "no spans in payload"}
+
+    trace = _rehydrate_trace(body)
+
+    # Token + cost roll-ups for the trace row.
+    from spool.tracing import compute_trace_metrics
+    m = compute_trace_metrics(trace)
+
+    conn = get_connection()
+    try:
+        # Upsert a minimal legacy session row so /api/sessions picks it up.
+        conn.execute(
+            """INSERT INTO sessions (
+                id, provider_id, project, cwd, git_branch, started_at, ended_at,
+                message_count, tool_call_count, estimated_input_tokens,
+                estimated_output_tokens, estimated_cost_usd, model, title
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                provider_id = EXCLUDED.provider_id,
+                started_at = EXCLUDED.started_at,
+                ended_at = EXCLUDED.ended_at,
+                tool_call_count = EXCLUDED.tool_call_count,
+                estimated_input_tokens = EXCLUDED.estimated_input_tokens,
+                estimated_output_tokens = EXCLUDED.estimated_output_tokens,
+                estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+                model = EXCLUDED.model,
+                title = EXCLUDED.title""",
+            (
+                trace.session_id, trace.provider_id, trace.project,
+                trace.cwd, trace.git_branch, trace.started_at, trace.ended_at,
+                0, m["tool_count"], m["input_tokens"], m["output_tokens"],
+                m["cost_usd"], trace.model, trace.title,
+            ),
+        )
+        _store_trace(conn, trace)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "status": "ok",
+        "trace_id": trace.id,
+        "spans": len(trace.spans),
+        "vendors": m["vendor_count"],
+        "top_vendors": m["top_vendors"],
+    }
+
+
+class EvalRunRequest(BaseModel):
+    rubric_id: str
+    trace_id: str | None = None
+    span_id: str | None = None
+    days: int | None = None
+
+
+@app.post("/api/evals/run")
+async def api_eval_run(body: EvalRunRequest):
+    from spool.evals import run_rubric, run_rubric_bulk
+    from datetime import datetime, timezone, timedelta
+
+    if body.trace_id:
+        eval_id = run_rubric(body.rubric_id, body.trace_id, body.span_id)
+        return {"status": "ok" if eval_id else "skipped", "eval_id": eval_id}
+
+    since = None
+    if body.days:
+        since = datetime.now(timezone.utc) - timedelta(days=body.days)
+    return run_rubric_bulk(body.rubric_id, since=since)
+
+
+@app.get("/api/observability/summary")
+async def api_observability_summary(provider: str | None = Query(default=None)):
+    """Top-line observability stats for the dashboard."""
+    conn = get_connection()
+    where = "WHERE provider_id = %s" if provider else ""
+    params: tuple = (provider,) if provider else ()
+    row = conn.execute(
+        f"""SELECT
+               COUNT(*) AS traces,
+               COALESCE(SUM(span_count), 0) AS spans,
+               COALESCE(SUM(agent_count), 0) AS agents,
+               COALESCE(SUM(tool_count), 0) AS tools,
+               COALESCE(SUM(llm_count), 0) AS llm_calls,
+               COALESCE(SUM(error_count), 0) AS errors,
+               COALESCE(SUM(total_cost_usd), 0) AS cost
+           FROM traces {where}""",
+        params,
+    ).fetchone()
+
+    top_agents = conn.execute(
+        """SELECT agent_type, COUNT(*) AS uses
+           FROM spans WHERE kind = 'agent' AND agent_type IS NOT NULL
+           GROUP BY agent_type ORDER BY uses DESC LIMIT 10"""
+    ).fetchall()
+
+    top_tools = conn.execute(
+        """SELECT tool_name,
+                  COUNT(*) AS uses,
+                  SUM(CASE WHEN tool_is_error THEN 1 ELSE 0 END) AS errors
+           FROM spans WHERE kind = 'tool' AND tool_name IS NOT NULL
+           GROUP BY tool_name ORDER BY uses DESC LIMIT 10"""
+    ).fetchall()
+
+    top_vendors = conn.execute(
+        """SELECT vendor, category,
+                  COUNT(*) AS uses,
+                  SUM(CASE WHEN tool_is_error THEN 1 ELSE 0 END) AS errors,
+                  COUNT(DISTINCT trace_id) AS traces
+           FROM spans WHERE kind = 'tool' AND vendor IS NOT NULL
+             AND vendor NOT IN ('filesystem', 'shell', 'search', 'unknown')
+           GROUP BY vendor, category ORDER BY uses DESC LIMIT 15"""
+    ).fetchall()
+    conn.close()
+
+    return {
+        "summary": dict(row) if row else {},
+        "top_agents": [dict(r) for r in top_agents],
+        "top_tools": [dict(r) for r in top_tools],
+        "top_vendors": [dict(r) for r in top_vendors],
+    }
 
 
 # --- Tool usage breakdown ---
