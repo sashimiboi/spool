@@ -154,7 +154,29 @@ export default function AnalyticsPage() {
     return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" /></div>;
   }
 
-  const s = overview.summary;
+  // Summary cards follow the selected date window so flipping 7d/30d/90d
+  // actually updates the numbers. `overview.summary` is all-time, which is
+  // what we used to read from here — we keep it as a fallback only if the
+  // window is "all" (no days filter).
+  const rollup = daily.reduce(
+    (acc, d) => {
+      acc.sessions += Number(d.sessions) || 0;
+      acc.messages += Number(d.messages) || 0;
+      acc.tool_calls += Number(d.tool_calls) || 0;
+      acc.tokens += Number(d.total_tokens) || 0;
+      acc.cost += Number(d.cost) || 0;
+      return acc;
+    },
+    { sessions: 0, messages: 0, tool_calls: 0, tokens: 0, cost: 0 },
+  );
+  const s = {
+    total_sessions: rollup.sessions,
+    total_messages: rollup.messages,
+    total_tool_calls: rollup.tool_calls,
+    total_input_tokens: rollup.tokens,  // combined in/out
+    total_output_tokens: 0,
+    total_cost_usd: rollup.cost,
+  };
 
   const baseOpts = { background: { fill: 'transparent' }, padding: { top: 8, right: 10, bottom: 0, left: 0 } };
 
