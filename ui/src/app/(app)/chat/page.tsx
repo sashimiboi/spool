@@ -169,7 +169,7 @@ export default function ChatPage() {
             >
               <div className={`w-1.5 h-1.5 rounded-full ${modelInfo.provider === 'anthropic' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
               <span className="text-muted-foreground">{modelInfo.provider === 'anthropic' ? 'Anthropic' : 'Ollama'}</span>
-              <span className="font-medium text-foreground">{modelInfo.model.replace('claude-', '').replace(/-\d+$/, '')}</span>
+              <span className="font-medium text-foreground">{(modelInfo.model || '').replace('claude-', '').replace(/-\d+$/, '')}</span>
               <Settings className="h-3 w-3 text-muted-foreground" />
             </button>
           )}
