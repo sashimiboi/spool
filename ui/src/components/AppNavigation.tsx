@@ -81,16 +81,16 @@ export default function AppNavigation({ collapsed, onToggle }: Props) {
       style={{ width: collapsed ? 52 : 208 }}
     >
       {/* Header */}
-      <div className={cn('flex items-center h-12', collapsed ? 'justify-center px-2' : 'px-3')}>
+      <div className={cn('flex items-center h-14', collapsed ? 'justify-center px-2' : 'px-3')}>
         {!collapsed ? (
-          <div className="flex items-center gap-2 flex-1 pl-1">
-            <SpoolLogo className="h-5 w-5 text-foreground" />
-            <span className="text-[13px] font-semibold text-foreground tracking-tight">
+          <div className="flex items-center gap-2.5 flex-1 pl-1">
+            <SpoolLogo className="h-8 w-8 text-foreground" />
+            <span className="text-[18px] font-semibold text-foreground tracking-tight">
               Spool
             </span>
           </div>
         ) : (
-          <SpoolLogo className="h-5 w-5 text-foreground" />
+          <SpoolLogo className="h-7 w-7 text-foreground" />
         )}
         <button
           onClick={onToggle}

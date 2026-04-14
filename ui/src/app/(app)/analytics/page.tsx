@@ -8,6 +8,7 @@ import { ModuleRegistry as ChartsModuleRegistry, AllCommunityModule as ChartsAll
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry as GridModuleRegistry, AllCommunityModule as GridAllCommunityModule, type ColDef } from 'ag-grid-community';
 import { useTheme } from '@/components/ThemeProvider';
+import { getGridTheme } from '@/lib/agGridTheme';
 import { fetchApi, formatNumber, formatCost, cleanProject } from '@/lib/api';
 
 ChartsModuleRegistry.registerModules([ChartsAllCommunityModule]);
@@ -81,7 +82,7 @@ export default function AnalyticsPage() {
   useEffect(() => { load(); }, [load]);
 
   const isDark = resolved === 'dark';
-  const gridTheme = isDark ? 'ag-theme-alpine-dark' : 'ag-theme-alpine';
+  const gridTheme = useMemo(() => getGridTheme(resolved), [resolved]);
   const textColor = isDark ? '#6b6b80' : '#8b8b9e';
   const gridColor = isDark ? '#2a2a3c' : '#f0f0f2';
   const primaryFill = isDark ? '#8b7cf6' : '#7c5cfc';
@@ -317,8 +318,9 @@ export default function AnalyticsPage() {
               <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Provider Breakdown</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={gridTheme} style={{ height: providers.length * 34 + 46, width: '100%' }}>
+              <div style={{ height: providers.length * 34 + 46, width: '100%' }}>
                 <AgGridReact
+                  theme={gridTheme}
                   columnDefs={providerColDefs}
                   rowData={providerRowData}
                   domLayout="normal"
@@ -395,8 +397,9 @@ export default function AnalyticsPage() {
       <Card>
         <CardHeader><CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Daily Breakdown</CardTitle></CardHeader>
         <CardContent>
-          <div className={gridTheme} style={{ height: dailyGridHeight, width: '100%' }}>
+          <div style={{ height: dailyGridHeight, width: '100%' }}>
             <AgGridReact
+              theme={gridTheme}
               columnDefs={dailyColDefs}
               rowData={daily}
               domLayout="normal"

@@ -1,12 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Copy, Check } from 'lucide-react';
-import { fetchApi, formatNumber, formatCost, formatDate, cleanProject } from '@/lib/api';
+import { Input } from '@/components/ui/input';
+import { ArrowLeft, Copy, Check, Search, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { AgGridReact } from 'ag-grid-react';
+import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community';
+import { useTheme } from '@/components/ThemeProvider';
+import { getGridTheme } from '@/lib/agGridTheme';
+import { fetchApi, formatCost, formatDate, cleanProject } from '@/lib/api';
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 interface Session {
   id: string;
@@ -35,12 +42,25 @@ interface SessionDetail {
   tool_summary: Array<{ tool_name: string; uses: number }>;
 }
 
+type DateRange = 'all' | '24h' | '7d' | '30d';
+
+const DATE_RANGES: Array<{ key: DateRange; label: string; ms: number | null }> = [
+  { key: 'all', label: 'All time', ms: null },
+  { key: '24h', label: '24h', ms: 24 * 60 * 60 * 1000 },
+  { key: '7d', label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+  { key: '30d', label: '30 days', ms: 30 * 24 * 60 * 60 * 1000 },
+];
+
 export default function SessionsPage() {
+  const { resolved } = useTheme();
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
-  const [filter, setFilter] = useState('');
   const [copied, setCopied] = useState(false);
+
+  const [search, setSearch] = useState('');
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const copyId = (id: string) => {
     navigator.clipboard.writeText(id);
@@ -57,18 +77,115 @@ export default function SessionsPage() {
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
-  const openSession = async (id: string) => {
+  const openSession = useCallback(async (id: string) => {
     try { setSelected(await fetchApi(`/api/session/${id}`)); }
     catch (e) { console.error(e); }
-  };
+  }, []);
 
-  const filtered = sessions.filter((s) => {
-    if (!filter) return true;
-    const q = filter.toLowerCase();
-    return (s.title || '').toLowerCase().includes(q)
-      || (s.project || '').toLowerCase().includes(q)
-      || (s.git_branch || '').toLowerCase().includes(q);
-  });
+  const gridTheme = useMemo(() => getGridTheme(resolved), [resolved]);
+
+  const availableProviders = useMemo(() => {
+    const set = new Set<string>();
+    sessions.forEach(s => s.provider_id && set.add(s.provider_id));
+    return Array.from(set);
+  }, [sessions]);
+
+  const filteredSessions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const cutoff = DATE_RANGES.find(r => r.key === dateRange)?.ms;
+    const since = cutoff ? Date.now() - cutoff : null;
+    return sessions.filter(s => {
+      if (providerFilter && s.provider_id !== providerFilter) return false;
+      if (since && s.started_at && new Date(s.started_at).getTime() < since) return false;
+      if (q) {
+        const hay = `${s.title || ''} ${s.project || ''} ${s.git_branch || ''} ${s.id}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [sessions, search, providerFilter, dateRange]);
+
+  const hasActiveFilters = search !== '' || providerFilter !== null || dateRange !== 'all';
+  const clearFilters = () => { setSearch(''); setProviderFilter(null); setDateRange('all'); };
+
+  const columnDefs = useMemo<ColDef<Session>[]>(() => [
+    {
+      field: 'title',
+      headerName: 'Session',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      flex: 2,
+      minWidth: 240,
+      valueFormatter: (p) => (p.value || 'Untitled').slice(0, 80),
+      tooltipValueGetter: (p) => p.value || 'Untitled',
+    },
+    {
+      field: 'provider_id',
+      headerName: 'Provider',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      flex: 1,
+      minWidth: 110,
+      valueFormatter: (p) => PROVIDER_LABELS[p.value as string] || p.value,
+    },
+    {
+      field: 'project',
+      headerName: 'Project',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      flex: 1.3,
+      minWidth: 140,
+      valueFormatter: (p) => cleanProject(p.value || ''),
+    },
+    {
+      field: 'git_branch',
+      headerName: 'Branch',
+      sortable: true,
+      filter: 'agTextColumnFilter',
+      flex: 1,
+      minWidth: 110,
+      valueFormatter: (p) => p.value || '—',
+    },
+    {
+      field: 'started_at',
+      headerName: 'Started',
+      sortable: true,
+      filter: 'agDateColumnFilter',
+      flex: 1,
+      minWidth: 130,
+      sort: 'desc',
+      valueFormatter: (p) => p.value ? formatDate(p.value) : '',
+      filterValueGetter: (p) => p.data?.started_at ? new Date(p.data.started_at) : null,
+    },
+    {
+      field: 'message_count',
+      headerName: 'Msgs',
+      sortable: true,
+      filter: 'agNumberColumnFilter',
+      type: 'rightAligned',
+      flex: 0.6,
+      minWidth: 80,
+    },
+    {
+      field: 'tool_call_count',
+      headerName: 'Tools',
+      sortable: true,
+      filter: 'agNumberColumnFilter',
+      type: 'rightAligned',
+      flex: 0.6,
+      minWidth: 80,
+    },
+    {
+      field: 'estimated_cost_usd',
+      headerName: 'Cost',
+      sortable: true,
+      filter: 'agNumberColumnFilter',
+      type: 'rightAligned',
+      flex: 0.7,
+      minWidth: 90,
+      valueFormatter: (p) => formatCost(p.value || 0),
+    },
+  ], []);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">
@@ -158,45 +275,103 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold tracking-tight">Sessions</h1>
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-lg font-semibold tracking-tight">Sessions</h1>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {filteredSessions.length} of {sessions.length}
+        </span>
+      </div>
 
-      <Input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter by project, title, or branch..."
-      />
-
-      <div className="rounded-lg border bg-card overflow-hidden">
-        {/* Header */}
-        <div className="grid grid-cols-[2fr_80px_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          <span>Session</span><span>Provider</span><span>Project</span><span>Msgs</span><span>Tools</span><span>Cost</span>
-        </div>
-        {filtered.map((s) => (
+      {/* Filter toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
           <div
-            key={s.id}
-            onClick={() => openSession(s.id)}
-            className="grid grid-cols-[2fr_80px_1fr_60px_60px_60px] gap-3 px-4 py-2 border-b last:border-0 cursor-pointer hover:bg-accent/50 transition-colors"
+            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center justify-center"
+            style={{ zIndex: 10 }}
           >
-            <div>
-              <div className="text-[13px] font-medium truncate">{(s.title || 'Untitled').slice(0, 60)}</div>
-              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <span className="font-mono text-[10px]">{s.id.slice(0, 8)}</span>
-                <span>{formatDate(s.started_at)}</span>
-                {s.git_branch && <span className="text-muted-foreground/60">{s.git_branch}</span>}
-              </div>
-            </div>
-            <span className="text-[11px] text-muted-foreground self-center">
-              <Badge variant="outline" className="text-[10px]">{PROVIDER_LABELS[s.provider_id] || s.provider_id}</Badge>
-            </span>
-            <span className="text-[13px] text-muted-foreground truncate self-center">{cleanProject(s.project || '')}</span>
-            <span className="text-[13px] self-center tabular-nums">{s.message_count}</span>
-            <span className="text-[13px] self-center tabular-nums">{s.tool_call_count}</span>
-            <span className="text-[13px] text-muted-foreground self-center font-mono">{formatCost(s.estimated_cost_usd || 0)}</span>
+            <Search size={16} strokeWidth={2.25} style={{ color: 'hsl(var(--muted-foreground))' }} />
           </div>
-        ))}
-        {filtered.length === 0 && (
-          <div className="py-12 text-center text-muted-foreground text-[13px]">No sessions match your filter.</div>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search title, project, branch, id..."
+            className="pl-9 h-9 text-[13px]"
+          />
+        </div>
+
+        {availableProviders.length > 1 && (
+          <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+            <button
+              onClick={() => setProviderFilter(null)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                providerFilter === null
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              All
+            </button>
+            {availableProviders.map(p => (
+              <button
+                key={p}
+                onClick={() => setProviderFilter(providerFilter === p ? null : p)}
+                className={cn(
+                  'px-2.5 py-1 rounded transition-colors',
+                  providerFilter === p
+                    ? 'bg-accent text-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {PROVIDER_LABELS[p] || p}
+              </button>
+            ))}
+          </div>
         )}
+
+        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
+          {DATE_RANGES.map(r => (
+            <button
+              key={r.key}
+              onClick={() => setDateRange(r.key)}
+              className={cn(
+                'px-2.5 py-1 rounded transition-colors',
+                dateRange === r.key
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-[12px] text-muted-foreground">
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        )}
+      </div>
+
+      <div style={{ height: 'calc(100vh - 220px)', minHeight: 480, width: '100%' }}>
+        <AgGridReact<Session>
+          theme={gridTheme}
+          columnDefs={columnDefs}
+          rowData={filteredSessions}
+          headerHeight={36}
+          rowHeight={34}
+          suppressMovableColumns
+          defaultColDef={{
+            flex: 1,
+            minWidth: 80,
+            resizable: true,
+            suppressHeaderMenuButton: true,
+            suppressHeaderFilterButton: false,
+          }}
+          onRowClicked={(e) => e.data && openSession(e.data.id)}
+          rowClass="cursor-pointer"
+          overlayNoRowsTemplate='<span style="color: hsl(var(--muted-foreground))">No sessions match your filters.</span>'
+        />
       </div>
     </div>
   );
