@@ -36,15 +36,26 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [modelInfo, setModelInfo] = useState<{ provider: string; model: string } | null>(null);
+  const [modelInfo, setModelInfo] = useState<{ provider: string; model: string; connected?: boolean; purpose?: string } | null>(null);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatSession[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchApi('/api/settings').then((s) => {
-      setModelInfo({ provider: s.provider || 'ollama', model: s.model || 'gemma3:4b' });
-    }).catch(() => {});
+    fetchApi('/api/settings/agents').then((a) => {
+      if (a?.chat) {
+        setModelInfo({
+          provider: a.chat.provider || 'ollama',
+          model: a.chat.model || 'gemma3:4b',
+          connected: a.chat.connected,
+          purpose: a.chat.purpose,
+        });
+      }
+    }).catch(() => {
+      fetchApi('/api/settings').then((s) => {
+        setModelInfo({ provider: s.provider || 'ollama', model: s.model || 'gemma3:4b' });
+      }).catch(() => {});
+    });
     loadHistory();
   }, []);
 
@@ -156,21 +167,34 @@ export default function ChatPage() {
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between mb-3">
-          <div>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold tracking-tight">Chat</h1>
             <p className="text-[13px] text-muted-foreground">Ask questions about your coding sessions</p>
           </div>
           {modelInfo && (
             <button
               onClick={() => router.push('/settings')}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-transparent hover:bg-accent transition-colors text-[11px]"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card hover:bg-accent transition-colors text-[11px] group shrink-0"
               title="Change model in Settings"
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${modelInfo.provider === 'anthropic' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-              <span className="text-muted-foreground">{modelInfo.provider === 'anthropic' ? 'Anthropic' : 'Ollama'}</span>
-              <span className="font-medium text-foreground">{(modelInfo.model || '').replace('claude-', '').replace(/-\d+$/, '')}</span>
-              <Settings className="h-3 w-3 text-muted-foreground" />
+              <div className="flex items-center gap-1">
+                <span className={`relative inline-block h-1.5 w-1.5 rounded-full ${modelInfo.connected === false ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+                  {modelInfo.connected !== false && (
+                    <span className="absolute inset-0 rounded-full bg-emerald-500/60 animate-ping" />
+                  )}
+                </span>
+                <Bot className="h-3 w-3 text-muted-foreground" />
+              </div>
+              <div className="flex flex-col items-start leading-tight">
+                <span className="font-medium text-foreground tabular-nums">
+                  {(modelInfo.model || '').replace('claude-', '').replace(/-\d+$/, '')}
+                </span>
+                <span className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                  {modelInfo.provider === 'anthropic' ? 'Anthropic · RAG' : 'Ollama · RAG'}
+                </span>
+              </div>
+              <Settings className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
             </button>
           )}
         </div>

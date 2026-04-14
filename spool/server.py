@@ -885,6 +885,102 @@ async def api_update_settings(body: SettingsUpdate):
     return {"status": "updated"}
 
 
+@app.get("/api/settings/agents")
+async def api_settings_agents():
+    """Aggregate status of all three spool agents (chat, judge, mcp)."""
+    import httpx as _httpx
+    import os as _os
+
+    conn = get_connection()
+    row = conn.execute("SELECT config FROM providers WHERE id = 'spool-agent'").fetchone()
+    conn.close()
+    cfg = (row["config"] if row and isinstance(row.get("config"), dict) else {}) if row else {}
+
+    chat_provider = cfg.get("provider") or ("anthropic" if _os.getenv("ANTHROPIC_API_KEY") else "ollama")
+    chat_model = cfg.get("model") or ("claude-sonnet-4-20250514" if chat_provider == "anthropic" else "gemma3:4b")
+    ollama_url = cfg.get("ollama_url") or "http://localhost:11434"
+
+    # Probe Ollama once for both chat (if ollama) and judge.
+    ollama_status = "disconnected"
+    ollama_models: list[str] = []
+    try:
+        async with _httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get(f"{ollama_url}/api/tags")
+            resp.raise_for_status()
+            ollama_models = [m["name"] for m in resp.json().get("models", [])]
+            ollama_status = "connected"
+    except Exception:
+        pass
+
+    anthropic_key = cfg.get("anthropic_api_key") or _os.getenv("ANTHROPIC_API_KEY")
+
+    # Chat agent
+    if chat_provider == "ollama":
+        chat_connected = ollama_status == "connected" and chat_model in ollama_models
+    else:
+        chat_connected = bool(anthropic_key)
+
+    chat_agent = {
+        "name": "Spool Assistant",
+        "role": "chat",
+        "provider": chat_provider,
+        "model": chat_model,
+        "connected": chat_connected,
+        "ollama_url": ollama_url if chat_provider == "ollama" else None,
+        "has_key": bool(anthropic_key) if chat_provider == "anthropic" else None,
+        "purpose": "RAG chat over your session history. Backs the /chat page.",
+        "endpoint": "/chat",
+    }
+
+    # Judge agent — reads from spool.evals defaults
+    judge_model = cfg.get("judge_model") or _os.getenv("SPOOL_JUDGE_MODEL", "qwen2.5:7b")
+    judge_connected = ollama_status == "connected" and judge_model in ollama_models
+    judge_agent = {
+        "name": "Strands Eval Judge",
+        "role": "judge",
+        "provider": "ollama",
+        "model": judge_model,
+        "connected": judge_connected,
+        "ollama_url": ollama_url,
+        "purpose": "Backs every LLM-as-judge rubric in Strands (Helpfulness, Coherence, Trajectory, Tool Selection, etc.). Needs a tool-capable model.",
+        "endpoint": "/evals",
+        "note": None if judge_connected else (
+            f"Pull the judge model: ollama pull {judge_model}"
+            if ollama_status == "connected"
+            else "Ollama not running. Start it with 'ollama serve'."
+        ),
+    }
+
+    # MCP server
+    mcp_tools = [
+        "list_traces", "get_trace", "search_sessions", "get_stats",
+        "get_top_vendors", "list_evals", "list_rubrics", "run_eval",
+    ]
+    from pathlib import Path as _Path
+    venv_path = _Path(__file__).parent.parent / ".venv" / "bin" / "spool"
+    mcp_agent = {
+        "name": "Spool MCP Server",
+        "role": "mcp",
+        "transport": "stdio",
+        "tools": mcp_tools,
+        "command": str(venv_path) if venv_path.exists() else "spool",
+        "args": ["mcp"],
+        "purpose": "Exposes Spool as an MCP context source for any agent (Claude Code, Codex, Cursor). Register via 'claude mcp add spool <command> mcp'.",
+        "connected": venv_path.exists(),
+    }
+
+    return {
+        "chat": chat_agent,
+        "judge": judge_agent,
+        "mcp": mcp_agent,
+        "ollama": {
+            "status": ollama_status,
+            "url": ollama_url,
+            "models": ollama_models,
+        },
+    }
+
+
 @app.get("/api/settings/check-ollama")
 async def api_check_ollama():
     """Check if Ollama is running and what models are available."""

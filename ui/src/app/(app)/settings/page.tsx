@@ -5,7 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CheckCircle, XCircle, Server, Key, Cpu } from 'lucide-react';
+import { CheckCircle, XCircle, Server, Key, Cpu, Bot, Scale, Plug, Terminal, Copy, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { fetchApi, postApi } from '@/lib/api';
 
 interface Settings {
@@ -21,24 +22,65 @@ interface OllamaStatus {
   url: string;
 }
 
+interface AgentStatus {
+  chat: {
+    name: string;
+    provider: string;
+    model: string;
+    connected: boolean;
+    ollama_url?: string | null;
+    has_key?: boolean | null;
+    purpose: string;
+    endpoint: string;
+  };
+  judge: {
+    name: string;
+    provider: string;
+    model: string;
+    connected: boolean;
+    ollama_url: string;
+    purpose: string;
+    endpoint: string;
+    note: string | null;
+  };
+  mcp: {
+    name: string;
+    transport: string;
+    tools: string[];
+    command: string;
+    args: string[];
+    purpose: string;
+    connected: boolean;
+  };
+  ollama: {
+    status: string;
+    url: string;
+    models: string[];
+  };
+}
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<Settings>({
     provider: 'ollama', model: 'gemma3:4b', ollama_url: 'http://localhost:11434',
   });
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [agents, setAgents] = useState<AgentStatus | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [s, o] = await Promise.all([
+      const [s, o, a] = await Promise.all([
         fetchApi('/api/settings'),
         fetchApi('/api/settings/check-ollama'),
+        fetchApi('/api/settings/agents'),
       ]);
       setSettings(s);
       setOllamaStatus(o);
+      setAgents(a);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, []);
@@ -75,6 +117,66 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[13px] text-emerald-600 dark:text-emerald-400">
           <CheckCircle className="h-3.5 w-3.5" /> Settings saved
         </div>
+      )}
+
+      {/* Agents overview */}
+      {agents && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal flex items-center gap-2">
+              <Bot className="h-3.5 w-3.5" /> Agents
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Three Spool agents run side by side. Status updates live from the backend.</p>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            {/* Chat agent */}
+            <AgentRow
+              icon={Bot}
+              name={agents.chat.name}
+              role="CHAT"
+              connected={agents.chat.connected}
+              model={agents.chat.model}
+              provider={agents.chat.provider}
+              purpose={agents.chat.purpose}
+              linkLabel="Open chat"
+              linkHref={agents.chat.endpoint}
+            />
+
+            {/* Judge agent */}
+            <AgentRow
+              icon={Scale}
+              name={agents.judge.name}
+              role="JUDGE"
+              connected={agents.judge.connected}
+              model={agents.judge.model}
+              provider="ollama"
+              purpose={agents.judge.purpose}
+              linkLabel="View evals"
+              linkHref={agents.judge.endpoint}
+              note={agents.judge.note}
+            />
+
+            {/* MCP server */}
+            <AgentRow
+              icon={Plug}
+              name={agents.mcp.name}
+              role="MCP"
+              connected={agents.mcp.connected}
+              model={`${agents.mcp.tools.length} tools · stdio`}
+              provider="mcp"
+              purpose={agents.mcp.purpose}
+              linkLabel="Copy install command"
+              copyValue={`claude mcp add spool ${agents.mcp.command} ${agents.mcp.args.join(' ')}`}
+              copied={copiedCmd}
+              onCopy={() => {
+                navigator.clipboard.writeText(`claude mcp add spool ${agents.mcp.command} ${agents.mcp.args.join(' ')}`);
+                setCopiedCmd(true);
+                setTimeout(() => setCopiedCmd(false), 1800);
+              }}
+              tools={agents.mcp.tools}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {/* Provider selection */}
@@ -195,7 +297,7 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {/* Anthropic config */}
+      {/* Chat provider config (below the agents card) */}
       {isAnthropic && (
         <Card>
           <CardHeader>
@@ -248,6 +350,96 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+
+interface AgentRowProps {
+  icon: React.ElementType;
+  name: string;
+  role: string;
+  connected: boolean;
+  model: string;
+  provider: string;
+  purpose: string;
+  linkLabel?: string;
+  linkHref?: string;
+  copyValue?: string;
+  copied?: boolean;
+  onCopy?: () => void;
+  note?: string | null;
+  tools?: string[];
+}
+
+function AgentRow({
+  icon: Icon,
+  name,
+  role,
+  connected,
+  model,
+  provider,
+  purpose,
+  linkLabel,
+  linkHref,
+  copyValue,
+  copied,
+  onCopy,
+  note,
+  tools,
+}: AgentRowProps) {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-lg border bg-card/50">
+      <div className={cn(
+        'mt-0.5 p-1.5 rounded-md border',
+        connected ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10'
+      )}>
+        <Icon className={cn('h-3.5 w-3.5', connected ? 'text-emerald-500' : 'text-amber-500')} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] font-medium text-foreground">{name}</span>
+          <Badge variant="outline" className="text-[10px] uppercase tracking-wider">{role}</Badge>
+          <Badge variant={connected ? 'success' : 'destructive'} className="text-[10px]">
+            <span className={cn(
+              'inline-block h-1.5 w-1.5 rounded-full mr-1',
+              connected ? 'bg-emerald-500' : 'bg-amber-500',
+            )} />
+            {connected ? 'Connected' : 'Offline'}
+          </Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{purpose}</p>
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[11px]">
+          <span className="text-muted-foreground">Model:</span>
+          <code className="bg-secondary px-1.5 py-0.5 rounded font-mono text-[11px]">{model}</code>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">Provider:</span>
+          <code className="bg-secondary px-1.5 py-0.5 rounded font-mono text-[11px]">{provider}</code>
+        </div>
+        {note && (
+          <p className="mt-1.5 text-[11px] text-amber-500/90">{note}</p>
+        )}
+        {tools && tools.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {tools.map(t => (
+              <code key={t} className="text-[10px] bg-secondary px-1.5 py-0.5 rounded font-mono">{t}</code>
+            ))}
+          </div>
+        )}
+        <div className="mt-2 flex items-center gap-2">
+          {linkHref && (
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <a href={linkHref}>{linkLabel || 'Open'}</a>
+            </Button>
+          )}
+          {copyValue && (
+            <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={onCopy}>
+              {copied ? <Check className="h-3 w-3 mr-1 text-emerald-500" /> : <Terminal className="h-3 w-3 mr-1" />}
+              {copied ? 'Copied!' : (linkLabel || 'Copy command')}
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
