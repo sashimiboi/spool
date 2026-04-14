@@ -81,13 +81,21 @@ def _store_session(conn, session: ParsedSession):
             ),
         )
 
-        # Store tool calls
-        for tool_name in msg.tools_used:
-            conn.execute(
-                """INSERT INTO tool_calls (session_id, message_id, tool_name, timestamp)
-                   VALUES (%s, %s, %s, %s)""",
-                (session.session_id, msg.uuid, tool_name, msg.timestamp),
-            )
+        # Store tool calls with details
+        if msg.tool_details:
+            for td in msg.tool_details:
+                conn.execute(
+                    """INSERT INTO tool_calls (session_id, message_id, tool_name, tool_input, tool_result_preview, timestamp)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (session.session_id, msg.uuid, td.name, td.input_summary, td.result_preview or None, msg.timestamp),
+                )
+        else:
+            for tool_name in msg.tools_used:
+                conn.execute(
+                    """INSERT INTO tool_calls (session_id, message_id, tool_name, timestamp)
+                       VALUES (%s, %s, %s, %s)""",
+                    (session.session_id, msg.uuid, tool_name, msg.timestamp),
+                )
 
 
 def _embed_session(conn, session: ParsedSession):

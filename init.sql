@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS tool_calls (
     session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
     message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
     tool_name TEXT NOT NULL,
+    tool_input TEXT,
+    tool_result_preview TEXT,
     timestamp TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now()
 );

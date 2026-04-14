@@ -12,6 +12,7 @@ import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-communi
 import { useTheme } from '@/components/ThemeProvider';
 import { getGridTheme } from '@/lib/agGridTheme';
 import { fetchApi, formatCost, formatDate, cleanProject } from '@/lib/api';
+import { MessageContent, ToolBadges, ToolCallList, type ToolCallInfo } from '@/lib/messageParser';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -36,9 +37,18 @@ const PROVIDER_LABELS: Record<string, string> = {
   'windsurf': 'Windsurf',
 };
 
+interface SessionMessage {
+  role: string;
+  content: string;
+  timestamp: string;
+  tools_used: string;
+  estimated_tokens: number;
+  tool_calls: ToolCallInfo[];
+}
+
 interface SessionDetail {
   session: Session & { estimated_input_tokens: number; estimated_output_tokens: number };
-  messages: Array<{ role: string; content: string; timestamp: string; tools_used: string; estimated_tokens: number }>;
+  messages: SessionMessage[];
   tool_summary: Array<{ tool_name: string; uses: number }>;
 }
 
@@ -242,26 +252,42 @@ export default function SessionsPage() {
             <CardTitle>Conversation ({selected.messages.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5">
-            {selected.messages.slice(0, 50).map((m, i) => (
-              <div key={i} className={`p-3 rounded-md border-l-2 ${
-                m.role === 'user'
-                  ? 'bg-primary/5 border-l-primary'
-                  : 'bg-secondary/50 border-l-border'
-              }`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${m.role === 'user' ? 'text-primary' : 'text-muted-foreground'}`}>
-                    {m.role}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
-                    {m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}
-                  </span>
+            {selected.messages.slice(0, 50).map((m, i) => {
+              const hasToolCalls = m.tool_calls && m.tool_calls.length > 0;
+              const hasLegacyTools = !hasToolCalls && m.tools_used && (() => {
+                try {
+                  const tools = typeof m.tools_used === 'string' ? JSON.parse(m.tools_used) : m.tools_used;
+                  return Array.isArray(tools) && tools.length > 0;
+                } catch { return false; }
+              })();
+
+              return (
+                <div key={i} className={`p-3 rounded-md border-l-2 ${
+                  m.role === 'user'
+                    ? 'bg-primary/5 border-l-primary'
+                    : 'bg-secondary/50 border-l-border'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] font-semibold uppercase tracking-wider ${m.role === 'user' ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {m.role}
+                      </span>
+                      {hasLegacyTools && (() => {
+                        try {
+                          const tools = typeof m.tools_used === 'string' ? JSON.parse(m.tools_used) : m.tools_used;
+                          return <ToolBadges tools={tools} />;
+                        } catch { return null; }
+                      })()}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}
+                    </span>
+                  </div>
+                  <MessageContent content={m.content || ''} />
+                  {hasToolCalls && <ToolCallList toolCalls={m.tool_calls} />}
                 </div>
-                <div className="text-[13px] leading-relaxed text-foreground whitespace-pre-wrap max-h-[200px] overflow-auto scrollbar-thin">
-                  {(m.content || '').slice(0, 500)}
-                  {(m.content || '').length > 500 && <span className="text-muted-foreground"> ...truncated</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {selected.messages.length > 50 && (
               <p className="text-[11px] text-muted-foreground text-center pt-2">
                 Showing first 50 of {selected.messages.length} messages
