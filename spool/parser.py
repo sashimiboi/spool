@@ -7,7 +7,9 @@ legacy tables and the new traces/spans tables in the same pass.
 
 from __future__ import annotations
 
+import difflib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,19 @@ from spool.tracing import (
     TraceBuilder,
 )
 
+_SYSTEM_PREFIXES = re.compile(
+    r"^(<(local-command-caveat|system-reminder|command-name|local-command-stdout)>|<!\[CDATA)"
+)
+_XML_TAG_STRIP = re.compile(r"<[^>]+>[^<]*</[^>]+>\s*")
+
+
+@dataclass
+class ToolCallDetail:
+    tool_use_id: str
+    name: str
+    input_summary: str
+    result_preview: str = ""
+
 
 @dataclass
 class ParsedMessage:
@@ -33,6 +48,7 @@ class ParsedMessage:
     cwd: str | None = None
     git_branch: str | None = None
     tools_used: list[str] = field(default_factory=list)
+    tool_details: list[ToolCallDetail] = field(default_factory=list)
     estimated_tokens: int = 0
 
 
@@ -66,6 +82,53 @@ class ParsedSession:
     @property
     def estimated_output_tokens(self) -> int:
         return sum(m.estimated_tokens for m in self.messages if m.role == "assistant")
+
+
+def _summarize_tool_input(name: str, inp: dict) -> str:
+    """Create a one-line summary of a tool call's input."""
+    def _short_path(p: str) -> str:
+        parts = p.rsplit("/", 2)
+        return "/".join(parts[-2:]) if len(parts) > 2 else p
+
+    if name == "Read":
+        path = inp.get("file_path", "")
+        offset = inp.get("offset")
+        limit = inp.get("limit")
+        if offset and limit:
+            return f"{path}:{offset}-{offset + limit}"
+        return path
+    if name in ("Edit", "Write"):
+        return inp.get("file_path", "")
+    if name == "Bash":
+        cmd = inp.get("command", "")
+        return cmd[:120]
+    if name == "Grep":
+        pattern = inp.get("pattern", "")
+        path = _short_path(inp.get("path", "")) if inp.get("path") else ""
+        gl = inp.get("glob", "")
+        parts = [f'"{pattern}"']
+        if path:
+            parts.append(f"in {path}")
+        if gl:
+            parts.append(f"({gl})")
+        return " ".join(parts)
+    if name == "Glob":
+        return inp.get("pattern", "")
+    if name == "Agent":
+        return inp.get("description", "")[:100]
+    if name in ("WebSearch", "WebFetch"):
+        return inp.get("query", inp.get("url", ""))[:120]
+    if name == "Skill":
+        return inp.get("skill", "")
+    if name == "TodoWrite":
+        todos = inp.get("todos", [])
+        return f"{len(todos)} items"
+    if name == "LSP":
+        return inp.get("operation", "")
+    # Fallback: show first key=value
+    for k, v in inp.items():
+        return f"{k}={str(v)[:80]}"
+    return ""
 
 
 def _extract_content(message: dict) -> str:
@@ -103,7 +166,11 @@ def _extract_tool_uses(message: dict) -> list[dict]:
 
 
 def _extract_tool_results(message: dict) -> list[dict]:
-    """Return the tool_result content blocks from a user message."""
+    """Return the tool_result content blocks from a user message.
+
+    Used by the Trace builder which needs the raw blocks to match against
+    open tool spans and carry the full text/error info.
+    """
     msg = message.get("message", {})
     content = msg.get("content", "")
     if not isinstance(content, list):
@@ -114,7 +181,74 @@ def _extract_tool_results(message: dict) -> list[dict]:
     ]
 
 
-def _parse_timestamp(raw) -> datetime | None:
+def _extract_tool_result_previews(message: dict) -> dict[str, str]:
+    """Return {tool_use_id: preview_text} for a user message's tool_results.
+
+    Used by the legacy tool_details view. Previews are clipped at 500 chars
+    so large file reads don't blow up the sessions table.
+    """
+    results: dict[str, str] = {}
+    for block in _extract_tool_results(message):
+        tool_use_id = block.get("tool_use_id", "")
+        result_content = block.get("content", "")
+        if isinstance(result_content, list):
+            text_parts = [
+                b.get("text", "")
+                for b in result_content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            result_content = "\n".join(text_parts)
+        if tool_use_id and isinstance(result_content, str):
+            results[tool_use_id] = result_content[:500]
+    return results
+
+
+def _format_edit_diff(inp: dict) -> str:
+    """Format an Edit tool input as a unified diff with interleaved hunks."""
+    old = inp.get("old_string", "")
+    new = inp.get("new_string", "")
+    if not old and not new:
+        return ""
+    old_lines = old.splitlines(keepends=True)
+    new_lines = new.splitlines(keepends=True)
+    diff = difflib.unified_diff(old_lines, new_lines, lineterm="")
+    lines = []
+    for line in diff:
+        stripped = line.rstrip("\n")
+        if not stripped:
+            continue
+        if stripped.startswith("---") or stripped.startswith("+++") or stripped.startswith("@@"):
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)[:2000]
+
+
+def _extract_tool_details(message: dict) -> list[ToolCallDetail]:
+    """Extract detailed tool call info from an assistant message."""
+    msg = message.get("message", {})
+    content = msg.get("content", "")
+    details = []
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                name = block.get("name", "unknown")
+                inp = block.get("input", {}) or {}
+                result_preview = ""
+                if name == "Edit":
+                    result_preview = _format_edit_diff(inp)
+                elif name == "Write":
+                    result_preview = (inp.get("content") or "")[:2000]
+                details.append(ToolCallDetail(
+                    tool_use_id=block.get("id", ""),
+                    name=name,
+                    input_summary=_summarize_tool_input(name, inp),
+                    result_preview=result_preview,
+                ))
+    return details
+
+
+def _parse_timestamp(raw: str | int | float | None) -> datetime | None:
+    """Parse various timestamp formats."""
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
@@ -207,38 +341,65 @@ def parse_session_file(file_path: Path) -> ParsedSession | None:
             if m:
                 model = m
 
-    # --- Build ParsedMessage list (legacy path, preserved exactly) -------
+    # --- Build ParsedMessage list (legacy path, with tool details) -------
     messages: list[ParsedMessage] = []
+    pending_tool_details: list[ToolCallDetail] = []
     for record in records:
+        rec_type = record["type"]  # "user" or "assistant"
+
+        # Pair tool_result previews against the previous assistant's
+        # tool_details before we filter empty-content user records out.
+        if rec_type == "user" and pending_tool_details:
+            previews = _extract_tool_result_previews(record)
+            for td in pending_tool_details:
+                if td.tool_use_id in previews and not td.result_preview:
+                    td.result_preview = previews[td.tool_use_id]
+            pending_tool_details = []
+
         content = _extract_content(record)
         if not content.strip():
             continue
-        role = record["type"]  # "user" or "assistant"
-        tools = [b.get("name", "unknown") for b in _extract_tool_uses(record)] if role == "assistant" else []
+
+        tools = (
+            [b.get("name", "unknown") for b in _extract_tool_uses(record)]
+            if rec_type == "assistant"
+            else []
+        )
+        tool_details: list[ToolCallDetail] = []
+        if rec_type == "assistant":
+            tool_details = _extract_tool_details(record)
+            pending_tool_details = tool_details
+
         ts = _parse_timestamp(record.get("timestamp"))
         est_tokens = max(1, len(content) // CHARS_PER_TOKEN)
 
         messages.append(ParsedMessage(
             uuid=record.get("uuid", ""),
             session_id=session_id,
-            role=role,
+            role=rec_type,
             content=content,
             timestamp=ts,
             cwd=record.get("cwd"),
             git_branch=record.get("gitBranch"),
             tools_used=tools,
+            tool_details=tool_details,
             estimated_tokens=est_tokens,
         ))
 
     if not messages:
         return None
 
-    # Title from first user message.
-    first_user = next((m for m in messages if m.role == "user"), None)
+    # Title from first user message that isn't a system reminder or caveat.
+    first_user = next(
+        (m for m in messages if m.role == "user" and not _SYSTEM_PREFIXES.match(m.content.strip())),
+        None,
+    )
     title = None
     if first_user:
-        title = first_user.content[:80].replace("\n", " ").strip()
-        if len(first_user.content) > 80:
+        clean = _XML_TAG_STRIP.sub("", first_user.content).strip()
+        clean = clean or first_user.content.strip()
+        title = clean[:80].replace("\n", " ").strip()
+        if len(clean) > 80:
             title += "..."
 
     timestamps = [m.timestamp for m in messages if m.timestamp]

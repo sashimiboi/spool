@@ -135,8 +135,14 @@ def get_session_detail(session_id: str) -> dict | None:
         return None
 
     messages = conn.execute(
-        """SELECT role, content, timestamp, tools_used, estimated_tokens
+        """SELECT id, role, content, timestamp, tools_used, estimated_tokens
            FROM messages WHERE session_id = %s ORDER BY timestamp""",
+        (session_id,),
+    ).fetchall()
+
+    tool_calls_rows = conn.execute(
+        """SELECT message_id, tool_name, tool_input, tool_result_preview
+           FROM tool_calls WHERE session_id = %s ORDER BY id""",
         (session_id,),
     ).fetchall()
 
@@ -149,8 +155,26 @@ def get_session_detail(session_id: str) -> dict | None:
 
     conn.close()
 
+    tool_calls_by_msg: dict[str, list[dict]] = {}
+    for tc in tool_calls_rows:
+        mid = tc["message_id"]
+        if mid not in tool_calls_by_msg:
+            tool_calls_by_msg[mid] = []
+        tool_calls_by_msg[mid].append({
+            "name": tc["tool_name"],
+            "input": tc["tool_input"],
+            "result_preview": tc["tool_result_preview"],
+        })
+
+    msg_list = []
+    for m in messages:
+        d = dict(m)
+        d["tool_calls"] = tool_calls_by_msg.get(m["id"], [])
+        del d["id"]
+        msg_list.append(d)
+
     return {
         "session": dict(session),
-        "messages": [dict(m) for m in messages],
+        "messages": msg_list,
         "tool_summary": [dict(t) for t in tool_summary],
     }
