@@ -1,11 +1,18 @@
 """Parse Claude Code session JSONL files from ~/.claude/projects/."""
 
+import difflib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from spool.config import CLAUDE_PROJECTS_DIR, CHARS_PER_TOKEN
+
+_SYSTEM_PREFIXES = re.compile(
+    r"^(<(local-command-caveat|system-reminder|command-name|local-command-stdout)>|<!\[CDATA)"
+)
+_XML_TAG_STRIP = re.compile(r"<[^>]+>[^<]*</[^>]+>\s*")
 
 
 @dataclass
@@ -68,14 +75,14 @@ def _summarize_tool_input(name: str, inp: dict) -> str:
         return "/".join(parts[-2:]) if len(parts) > 2 else p
 
     if name == "Read":
-        path = _short_path(inp.get("file_path", ""))
+        path = inp.get("file_path", "")
         offset = inp.get("offset")
         limit = inp.get("limit")
         if offset and limit:
             return f"{path}:{offset}-{offset + limit}"
         return path
     if name in ("Edit", "Write"):
-        return _short_path(inp.get("file_path", ""))
+        return inp.get("file_path", "")
     if name == "Bash":
         cmd = inp.get("command", "")
         return cmd[:120]
@@ -142,6 +149,26 @@ def _extract_tools(message: dict) -> list[str]:
     return tools
 
 
+def _format_edit_diff(inp: dict) -> str:
+    """Format an Edit tool input as a unified diff with interleaved hunks."""
+    old = inp.get("old_string", "")
+    new = inp.get("new_string", "")
+    if not old and not new:
+        return ""
+    old_lines = old.splitlines(keepends=True)
+    new_lines = new.splitlines(keepends=True)
+    diff = difflib.unified_diff(old_lines, new_lines, lineterm="")
+    lines = []
+    for line in diff:
+        stripped = line.rstrip("\n")
+        if not stripped:
+            continue
+        if stripped.startswith("---") or stripped.startswith("+++") or stripped.startswith("@@"):
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)[:2000]
+
+
 def _extract_tool_details(message: dict) -> list[ToolCallDetail]:
     """Extract detailed tool call info from an assistant message."""
     msg = message.get("message", {})
@@ -152,10 +179,16 @@ def _extract_tool_details(message: dict) -> list[ToolCallDetail]:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 name = block.get("name", "unknown")
                 inp = block.get("input", {})
+                result_preview = ""
+                if name == "Edit":
+                    result_preview = _format_edit_diff(inp)
+                elif name == "Write":
+                    result_preview = (inp.get("content") or "")[:2000]
                 details.append(ToolCallDetail(
                     tool_use_id=block.get("id", ""),
                     name=name,
                     input_summary=_summarize_tool_input(name, inp),
+                    result_preview=result_preview,
                 ))
     return details
 
@@ -225,7 +258,7 @@ def parse_session_file(file_path: Path) -> ParsedSession | None:
                     results = _extract_tool_results(record)
                     if results:
                         for td in pending_tool_details:
-                            if td.tool_use_id in results:
+                            if td.tool_use_id in results and not td.result_preview:
                                 td.result_preview = results[td.tool_use_id]
                     pending_tool_details = []
 
@@ -269,12 +302,16 @@ def parse_session_file(file_path: Path) -> ParsedSession | None:
     if not messages:
         return None
 
-    # Derive session title from first user message
-    first_user = next((m for m in messages if m.role == "user"), None)
+    first_user = next(
+        (m for m in messages if m.role == "user" and not _SYSTEM_PREFIXES.match(m.content.strip())),
+        None,
+    )
     title = None
     if first_user:
-        title = first_user.content[:80].replace("\n", " ").strip()
-        if len(first_user.content) > 80:
+        clean = _XML_TAG_STRIP.sub("", first_user.content).strip()
+        clean = clean or first_user.content.strip()
+        title = clean[:80].replace("\n", " ").strip()
+        if len(clean) > 80:
             title += "..."
 
     timestamps = [m.timestamp for m in messages if m.timestamp]

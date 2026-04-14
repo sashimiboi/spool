@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 
 // --- Types ---
@@ -141,44 +141,31 @@ export function hasStructuredContent(content: string): boolean {
 
 // --- Tool Colors ---
 
-const TOOL_COLORS: Record<string, string> = {
-  Read: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
-  Edit: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-  Write: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-  Bash: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
-  Grep: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
-  Glob: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
-  Agent: 'bg-pink-500/15 text-pink-600 dark:text-pink-400',
-  WebSearch: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400',
-  WebFetch: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400',
-  TodoWrite: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
-  NotebookEdit: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400',
-  LSP: 'bg-teal-500/15 text-teal-600 dark:text-teal-400',
-  Skill: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+const TOOL_THEME: Record<string, { bg: string; text: string; border: string }> = {
+  Read:         { bg: 'bg-blue-500/15',    text: 'text-blue-600 dark:text-blue-400',       border: 'border-blue-500/25' },
+  Edit:         { bg: 'bg-emerald-500/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/25' },
+  Write:        { bg: 'bg-emerald-500/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/25' },
+  Bash:         { bg: 'bg-orange-500/15',  text: 'text-orange-600 dark:text-orange-400',   border: 'border-orange-500/25' },
+  Grep:         { bg: 'bg-violet-500/15',  text: 'text-violet-600 dark:text-violet-400',   border: 'border-violet-500/25' },
+  Glob:         { bg: 'bg-violet-500/15',  text: 'text-violet-600 dark:text-violet-400',   border: 'border-violet-500/25' },
+  Agent:        { bg: 'bg-pink-500/15',    text: 'text-pink-600 dark:text-pink-400',       border: 'border-pink-500/25' },
+  WebSearch:    { bg: 'bg-cyan-500/15',    text: 'text-cyan-600 dark:text-cyan-400',       border: 'border-cyan-500/25' },
+  WebFetch:     { bg: 'bg-cyan-500/15',    text: 'text-cyan-600 dark:text-cyan-400',       border: 'border-cyan-500/25' },
+  TodoWrite:    { bg: 'bg-yellow-500/15',  text: 'text-yellow-600 dark:text-yellow-400',   border: 'border-yellow-500/25' },
+  NotebookEdit: { bg: 'bg-indigo-500/15',  text: 'text-indigo-600 dark:text-indigo-400',   border: 'border-indigo-500/25' },
+  LSP:          { bg: 'bg-teal-500/15',    text: 'text-teal-600 dark:text-teal-400',       border: 'border-teal-500/25' },
+  Skill:        { bg: 'bg-rose-500/15',    text: 'text-rose-600 dark:text-rose-400',       border: 'border-rose-500/25' },
 };
+
+const DEFAULT_THEME = { bg: 'bg-primary/15', text: 'text-primary', border: 'border-primary/25' };
 
 function getToolColor(toolName: string): string {
-  return TOOL_COLORS[toolName] || 'bg-primary/15 text-primary';
+  const t = TOOL_THEME[toolName] || DEFAULT_THEME;
+  return `${t.bg} ${t.text}`;
 }
 
-const TOOL_BORDER_COLORS: Record<string, string> = {
-  Read: 'border-blue-500/25',
-  Edit: 'border-emerald-500/25',
-  Write: 'border-emerald-500/25',
-  Bash: 'border-orange-500/25',
-  Grep: 'border-violet-500/25',
-  Glob: 'border-violet-500/25',
-  Agent: 'border-pink-500/25',
-  WebSearch: 'border-cyan-500/25',
-  WebFetch: 'border-cyan-500/25',
-  TodoWrite: 'border-yellow-500/25',
-  NotebookEdit: 'border-indigo-500/25',
-  LSP: 'border-teal-500/25',
-  Skill: 'border-rose-500/25',
-};
-
 function getToolBorderColor(toolName: string): string {
-  return TOOL_BORDER_COLORS[toolName] || 'border-primary/25';
+  return (TOOL_THEME[toolName] || DEFAULT_THEME).border;
 }
 
 // --- Legacy ToolBadges (still used in grid/summary views) ---
@@ -200,8 +187,7 @@ export function ToolBadges({ tools }: { tools: string[] }) {
 
 function ToolCallItem({ tc }: { tc: ToolCallInfo }) {
   const [expanded, setExpanded] = useState(false);
-  const hasResult = tc.result_preview && tc.result_preview.trim().length > 0;
-  const canExpand = hasResult;
+  const canExpand = !!(tc.result_preview?.trim());
 
   return (
     <div className={`rounded-md border ${getToolBorderColor(tc.name)} bg-card/50`}>
@@ -223,7 +209,7 @@ function ToolCallItem({ tc }: { tc: ToolCallInfo }) {
           </span>
         )}
       </button>
-      {expanded && hasResult && (
+      {expanded && canExpand && (
         <div className="px-3 pb-2.5 pt-0.5">
           <pre className="text-[11px] text-muted-foreground bg-muted/50 rounded-md px-3 py-2 font-mono whitespace-pre-wrap break-all max-h-[300px] overflow-auto scrollbar-thin leading-relaxed">
             {tc.result_preview}

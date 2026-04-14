@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CheckCircle, XCircle, Server, Key, Cpu } from 'lucide-react';
+import { CheckCircle, XCircle, Server, Key, Cpu, Code } from 'lucide-react';
 import { fetchApi, postApi } from '@/lib/api';
 
 interface Settings {
@@ -248,6 +248,64 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {/* Editor preference */}
+      <EditorPreference />
     </div>
+  );
+}
+
+const IDE_OPTIONS = [
+  { key: 'cursor', label: 'Cursor', description: 'AI-native code editor' },
+  { key: 'zed', label: 'Zed', description: 'High-performance editor' },
+  { key: 'vscode', label: 'VS Code', description: 'Microsoft\'s code editor' },
+  { key: 'windsurf', label: 'Windsurf', description: 'Codeium\'s AI editor' },
+] as const;
+
+function EditorPreference() {
+  const [selected, setSelected] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('spool-preferred-ide');
+  });
+
+  const pick = (key: string) => {
+    localStorage.setItem('spool-preferred-ide', key);
+    setSelected(key);
+  };
+
+  const clear = () => {
+    localStorage.removeItem('spool-preferred-ide');
+    setSelected(null);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal flex items-center gap-2">
+          <Code className="h-3.5 w-3.5" /> Default Editor
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-[11px] text-muted-foreground">Used for &ldquo;Open in editor&rdquo; buttons on file changes in session views.</p>
+        <div className="grid grid-cols-2 gap-3">
+          {IDE_OPTIONS.map(ide => (
+            <button
+              key={ide.key}
+              onClick={() => pick(ide.key)}
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                selected === ide.key ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent'
+              }`}
+            >
+              <span className="font-medium text-[13px]">{ide.label}</span>
+              <p className="text-[11px] text-muted-foreground">{ide.description}</p>
+            </button>
+          ))}
+        </div>
+        {selected && (
+          <button onClick={clear} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+            Clear preference (will ask each time)
+          </button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
