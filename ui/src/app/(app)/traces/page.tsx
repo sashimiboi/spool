@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ArrowLeft, Activity, Bot, Wrench, Sparkles, AlertCircle, Play, CheckCircle2, XCircle, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SpanTree, { Span, SpanBadges, VENDOR_COLORS } from '@/components/SpanTree';
+import TraceConversation from '@/components/TraceConversation';
 import { fetchApi, postApi, formatCost, formatDate, cleanProject } from '@/lib/api';
 
 interface TraceListRow {
@@ -71,6 +72,7 @@ export default function TracesPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [rubrics, setRubrics] = useState<Rubric[]>([]);
   const [runningRubric, setRunningRubric] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Array<{ role: string; content: string; timestamp: string | null; tools_used: string | string[] | null; estimated_tokens: number }>>([]);
 
   const loadList = useCallback(async () => {
     try {
@@ -93,6 +95,16 @@ export default function TracesPage() {
       const detail: TraceDetail = await fetchApi(`/api/traces/${id}`);
       setSelected(detail);
       setSelectedSpan(detail.spans[0] || null);
+      setMessages([]);
+      // Fetch the legacy session messages so we can render the conversation.
+      // Experiments-captured traces don't have messages yet; that's fine,
+      // TraceConversation handles an empty list.
+      try {
+        const sess = await fetchApi(`/api/session/${detail.trace.session_id}`);
+        if (sess && Array.isArray(sess.messages)) {
+          setMessages(sess.messages);
+        }
+      } catch { /* messages not available */ }
     } catch (e) { console.error(e); }
   }, []);
 
@@ -145,11 +157,20 @@ export default function TracesPage() {
           ))}
         </div>
 
-        <Tabs defaultValue="tree">
+        <Tabs defaultValue="conversation">
           <TabsList>
+            <TabsTrigger value="conversation">Conversation ({messages.length})</TabsTrigger>
             <TabsTrigger value="tree">Span tree</TabsTrigger>
             <TabsTrigger value="evals">Evals ({selected.evals.length})</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="conversation" className="mt-3">
+            <Card>
+              <CardContent className="p-3">
+                <TraceConversation messages={messages} spans={selected.spans} />
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="tree" className="mt-3">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

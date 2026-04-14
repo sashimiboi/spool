@@ -6,7 +6,7 @@ import { useTheme } from '@/components/ThemeProvider';
 import {
   LayoutDashboard, List, Search, BarChart3, Link2,
   ChevronLeft, ChevronRight, MessageCircle, Settings,
-  Sun, Moon, Monitor, Activity, ClipboardList,
+  Sun, Moon, Activity, ClipboardList,
 } from 'lucide-react';
 
 function SpoolLogo({ className }: { className?: string }) {
@@ -68,7 +68,7 @@ export default function AppNavigation({ collapsed, onToggle }: Props) {
     setTheme(order[(idx + 1) % order.length]);
   };
 
-  const ThemeIcon = theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sun;
+  const ThemeIcon = resolved === 'dark' ? Moon : Sun;
 
   return (
     <nav
