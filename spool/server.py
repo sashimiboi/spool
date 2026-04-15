@@ -288,37 +288,49 @@ async def api_traces(
     project: str | None = Query(default=None),
     session_id: str | None = Query(default=None),
     since_days: int | None = Query(default=None),
+    vendor: str | None = Query(default=None),
 ):
     """List traces with optional filters. Returns up to `limit` rows plus
-    a total count so the GUI can show "X of Y"."""
+    a total count so the GUI can show "X of Y".
+
+    The `vendor` filter is span-scoped: it matches any trace that has at
+    least one span tagged with the given vendor (linear, github, slack,
+    etc.), so the Top Providers pills on the GUI can drill into their
+    backing traces by click.
+    """
     conn = get_connection()
-    clauses = []
+    clauses = ["TRUE"]
     params: list = []
     if provider:
-        clauses.append("provider_id = %s")
+        clauses.append("t.provider_id = %s")
         params.append(provider)
     if project:
-        clauses.append("project = %s")
+        clauses.append("t.project = %s")
         params.append(project)
     if session_id:
-        clauses.append("session_id = %s")
+        clauses.append("t.session_id = %s")
         params.append(session_id)
     if since_days:
-        clauses.append("started_at >= now() - make_interval(days => %s)")
+        clauses.append("t.started_at >= now() - make_interval(days => %s)")
         params.append(since_days)
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    if vendor:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM spans s WHERE s.trace_id = t.id AND s.vendor = %s)"
+        )
+        params.append(vendor)
+    where = "WHERE " + " AND ".join(clauses)
 
     total_row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM traces {where}",
+        f"SELECT COUNT(*) AS n FROM traces t {where}",
         tuple(params),
     ).fetchone()
     total = int((total_row or {}).get("n") or 0)
 
     rows = conn.execute(
-        f"""SELECT id, session_id, provider_id, project, title, started_at, ended_at,
-                   duration_ms, span_count, agent_count, tool_count, llm_count, error_count,
-                   total_input_tokens, total_output_tokens, total_cost_usd, model
-           FROM traces {where} ORDER BY started_at DESC NULLS LAST LIMIT %s OFFSET %s""",
+        f"""SELECT t.id, t.session_id, t.provider_id, t.project, t.title, t.started_at, t.ended_at,
+                   t.duration_ms, t.span_count, t.agent_count, t.tool_count, t.llm_count, t.error_count,
+                   t.total_input_tokens, t.total_output_tokens, t.total_cost_usd, t.model
+           FROM traces t {where} ORDER BY t.started_at DESC NULLS LAST LIMIT %s OFFSET %s""",
         tuple(params + [limit, offset]),
     ).fetchall()
     conn.close()

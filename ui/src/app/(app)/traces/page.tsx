@@ -116,12 +116,14 @@ export default function TracesPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [vendorFilter, setVendorFilter] = useState<string | null>(null);
   const [windowFilter, setWindowFilter] = useState<WindowKey>('all');
 
   const loadList = useCallback(async () => {
     try {
       const params = new URLSearchParams({ limit: '1000' });
       if (providerFilter) params.set('provider', providerFilter);
+      if (vendorFilter) params.set('vendor', vendorFilter);
       if (WINDOW_DAYS[windowFilter]) params.set('since_days', String(WINDOW_DAYS[windowFilter]));
       const [list, sum, rbs] = await Promise.all([
         fetchApi(`/api/traces?${params.toString()}`),
@@ -137,7 +139,7 @@ export default function TracesPage() {
       setRubrics(rbs);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [providerFilter, windowFilter]);
+  }, [providerFilter, vendorFilter, windowFilter]);
 
   useEffect(() => { loadList(); }, [loadList]);
 
@@ -511,11 +513,11 @@ export default function TracesPage() {
             </button>
           ))}
         </div>
-        {(search || providerFilter || windowFilter !== 'all') && (
+        {(search || providerFilter || vendorFilter || windowFilter !== 'all') && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { setSearch(''); setProviderFilter(null); setWindowFilter('all'); }}
+            onClick={() => { setSearch(''); setProviderFilter(null); setVendorFilter(null); setWindowFilter('all'); }}
             className="h-8 text-[12px] text-muted-foreground"
           >
             Clear
@@ -552,26 +554,44 @@ export default function TracesPage() {
       {summary && summary.top_vendors && summary.top_vendors.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Package className="h-4 w-4" /> Top vendors
+            <CardTitle className="text-sm flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Package className="h-4 w-4" /> Top providers
+              </span>
+              {vendorFilter && (
+                <button
+                  onClick={() => setVendorFilter(null)}
+                  className="text-[11px] font-normal text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Clear filter
+                </button>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {summary.top_vendors.map((v) => (
-                <div
-                  key={`${v.vendor}-${v.category}`}
-                  className={cn(
-                    'px-2.5 py-1 rounded border text-[12px] flex items-center gap-2',
-                    VENDOR_COLORS[v.vendor] || VENDOR_COLORS.unknown
-                  )}
-                >
-                  <span className="font-medium">{v.vendor}</span>
-                  <span className="opacity-70 text-[11px]">{v.category}</span>
-                  <span className="tabular-nums">· {v.uses}</span>
-                  {v.errors > 0 && <span className="text-destructive tabular-nums">· {v.errors} err</span>}
-                </div>
-              ))}
+              {summary.top_vendors.map((v) => {
+                const active = vendorFilter === v.vendor;
+                return (
+                  <button
+                    key={`${v.vendor}-${v.category}`}
+                    onClick={() => setVendorFilter(active ? null : v.vendor)}
+                    className={cn(
+                      'px-2.5 py-1 rounded border text-[12px] flex items-center gap-2 transition-all',
+                      VENDOR_COLORS[v.vendor] || VENDOR_COLORS.unknown,
+                      active
+                        ? 'ring-2 ring-primary ring-offset-1 ring-offset-background'
+                        : 'hover:brightness-125 opacity-90 hover:opacity-100',
+                    )}
+                    title={active ? `Showing traces that used ${v.vendor}. Click to clear.` : `Filter traces by ${v.vendor}`}
+                  >
+                    <span className="font-medium">{v.vendor}</span>
+                    <span className="opacity-70 text-[11px]">{v.category}</span>
+                    <span className="tabular-nums">· {v.uses}</span>
+                    {v.errors > 0 && <span className="text-destructive tabular-nums">· {v.errors} err</span>}
+                  </button>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -612,7 +632,6 @@ export default function TracesPage() {
                   <span>{t.llm_count}l</span>
                   {t.error_count > 0 && <Badge variant="destructive">{t.error_count} err</Badge>}
                   <span>{formatDuration(t.duration_ms)}</span>
-                  <span>{formatCost(Number(t.total_cost_usd) || 0)}</span>
                 </div>
               </div>
             ))}
