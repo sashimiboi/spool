@@ -378,28 +378,25 @@ async def api_trace_detail(trace_id: str):
 def _breakdown_cost_for_trace(trace: dict) -> dict:
     """Split a trace's total cost into input / output / cache_read / cache_write.
 
-    Uses the same Anthropic 5-minute prompt-caching formula the parser uses:
-    input at full rate, output at full output rate, cache writes at 1.25x
-    the input rate, cache reads at 0.10x. Returned as dollars so the GUI
-    can render a breakdown tooltip without having to know model pricing.
+    Looks up per-token rates via spool.pricing (LiteLLM-backed) so the
+    GUI can render a breakdown tooltip without having to know model
+    pricing, and so old rows with stale stored totals get re-priced at
+    read time against the current rate card.
     """
-    from spool.config import MODEL_PRICING, DEFAULT_PRICING
+    from spool.pricing import get_rates
 
     model = trace.get("model") or ""
-    in_rate, out_rate = MODEL_PRICING.get(model, DEFAULT_PRICING)
+    rates = get_rates(model)
     in_tok = int(trace.get("total_input_tokens") or 0)
     out_tok = int(trace.get("total_output_tokens") or 0)
     cr = int(trace.get("total_cache_read_tokens") or 0)
     cw = int(trace.get("total_cache_write_tokens") or 0)
 
-    def rate(tokens: int, per_m: float) -> float:
-        return round(tokens * per_m / 1_000_000, 6)
-
     return {
-        "input": rate(in_tok, in_rate),
-        "output": rate(out_tok, out_rate),
-        "cache_write": rate(cw, in_rate * 1.25),
-        "cache_read": rate(cr, in_rate * 0.10),
+        "input": round(in_tok * rates.input, 6),
+        "output": round(out_tok * rates.output, 6),
+        "cache_write": round(cw * rates.cache_write, 6),
+        "cache_read": round(cr * rates.cache_read, 6),
         "input_tokens": in_tok,
         "output_tokens": out_tok,
         "cache_read_tokens": cr,

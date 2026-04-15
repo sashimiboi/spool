@@ -369,6 +369,54 @@ def experiment_show(run_id):
         console.print(table)
 
 
+@cli.group()
+def pricing():
+    """Manage the LiteLLM-backed model pricing table."""
+    pass
+
+
+@pricing.command("refresh")
+def pricing_refresh():
+    """Force-fetch the LiteLLM model pricing table into ~/.spool/model_prices.json."""
+    from spool import pricing as _pricing
+    try:
+        data = _pricing.refresh()
+        console.print(f"[green]Pricing refreshed:[/green] {len(data)} models cached at {_pricing.CACHE_FILE}")
+    except Exception as e:
+        console.print(f"[red]Pricing refresh failed:[/red] {e}")
+        raise SystemExit(1)
+
+
+@pricing.command("show")
+@click.argument("model", required=False)
+def pricing_show(model):
+    """Show the cached pricing for one model, or the source status if no model given."""
+    from spool import pricing as _pricing
+
+    if not model:
+        status = _pricing.table_status()
+        table = Table(title="Pricing source")
+        table.add_column("Key", style="cyan")
+        table.add_column("Value")
+        for k, v in status.items():
+            table.add_row(k, str(v))
+        console.print(table)
+        return
+
+    rates = _pricing.get_rates(model)
+    table = Table(title=f"Rates for {model}")
+    table.add_column("Component", style="cyan")
+    table.add_column("$/Mtok", justify="right")
+    for label, rate in [
+        ("Input", rates.input),
+        ("Output", rates.output),
+        ("Cache write", rates.cache_write),
+        ("Cache read", rates.cache_read),
+    ]:
+        table.add_row(label, f"${rate * 1_000_000:.2f}")
+    console.print(table)
+
+
 @cli.command()
 @click.option("--stdio", is_flag=True, help="Use stdio transport (default is streamable-HTTP)")
 def mcp(stdio):
