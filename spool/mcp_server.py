@@ -2,9 +2,9 @@
 
 Exposes Spool's trace, span, eval, and stats data over the Model Context
 Protocol so any MCP-compatible agent (Claude Code, Codex, Cursor, etc.) can
-query it as a source of context. Launches over stdio by default so it can
-be wired into `~/.mcp.json`, Claude Code's MCP config, or any other MCP
-client.
+query it as a source of context. Defaults to streamable-HTTP transport on
+http://127.0.0.1:3004/mcp so web-based and remote agents can connect; stdio
+is still available for stdio-only clients via `serve_stdio()`.
 
 Tools exposed:
   - list_traces(limit, provider, project)
@@ -29,6 +29,12 @@ from mcp.server.fastmcp import FastMCP
 from spool.db import get_connection
 
 
+MCP_HOST = "127.0.0.1"
+MCP_PORT = 3004
+MCP_PATH = "/mcp"
+MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}{MCP_PATH}"
+
+
 mcp = FastMCP(
     name="spool",
     instructions=(
@@ -41,6 +47,9 @@ mcp = FastMCP(
         "on Linear tool calls last week?' or 'show me the longest-running "
         "agent span from Cursor'."
     ),
+    host=MCP_HOST,
+    port=MCP_PORT,
+    stateless_http=True,
 )
 
 
@@ -290,9 +299,14 @@ def run_eval(rubric_id: str, trace_id: str) -> dict:
 # --- entrypoint ------------------------------------------------------------
 
 def serve_stdio() -> None:
-    """Run the MCP server over stdio (for Claude Code / CLI MCP clients)."""
-    mcp.run()
+    """Run the MCP server over stdio (for stdio-only MCP clients)."""
+    mcp.run(transport="stdio")
+
+
+def serve_http() -> None:
+    """Run the MCP server over streamable-HTTP at MCP_URL."""
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
-    serve_stdio()
+    serve_http()

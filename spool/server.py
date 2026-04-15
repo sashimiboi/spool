@@ -1027,22 +1027,32 @@ async def api_settings_agents():
         ),
     }
 
-    # MCP server
+    # MCP server — streamable-HTTP at http://127.0.0.1:3004/mcp
+    from spool.mcp_server import MCP_HOST, MCP_PORT, MCP_URL
+    import socket as _socket
+
     mcp_tools = [
         "list_traces", "get_trace", "search_sessions", "get_stats",
         "get_top_vendors", "list_evals", "list_rubrics", "run_eval",
     ]
-    from pathlib import Path as _Path
-    venv_path = _Path(__file__).parent.parent / ".venv" / "bin" / "spool"
+
+    mcp_connected = False
+    try:
+        with _socket.create_connection((MCP_HOST, MCP_PORT), timeout=0.5):
+            mcp_connected = True
+    except OSError:
+        pass
+
     mcp_agent = {
         "name": "Spool MCP Server",
         "role": "mcp",
-        "transport": "stdio",
+        "transport": "streamable-http",
         "tools": mcp_tools,
-        "command": str(venv_path) if venv_path.exists() else "spool",
-        "args": ["mcp"],
-        "purpose": "Exposes Spool as an MCP context source for any agent (Claude Code, Codex, Cursor). Register via 'claude mcp add spool <command> mcp'.",
-        "connected": venv_path.exists(),
+        "url": MCP_URL,
+        "host": MCP_HOST,
+        "port": MCP_PORT,
+        "purpose": "Exposes Spool as an MCP context source over streamable-HTTP. Any agent (Claude Code, Codex, Cursor, web agents) can connect by URL.",
+        "connected": mcp_connected,
     }
 
     return {

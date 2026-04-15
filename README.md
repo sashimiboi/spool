@@ -52,11 +52,13 @@ spool sync --no-embed   # without embeddings (faster, for initial setup)
 cd ui && npm install && cd ..
 
 # 7. Start everything
-spool ui             # API on :3002, GUI on :3003
+spool ui             # API on :3002, MCP on :3004, GUI on :3003
 
-# 8. (Optional) Register the Spool MCP server with Claude Code so agents
-#    can query your session history via MCP.
-claude mcp add spool $(pwd)/.venv/bin/spool mcp
+# 8. (Optional) Connect an MCP-compatible agent to Spool. The MCP server
+#    runs automatically with `spool ui` over streamable-HTTP at
+#    http://127.0.0.1:3004/mcp, so any agent (Claude Code, Codex, Cursor,
+#    web agents) can connect by URL. Example for Claude Code:
+claude mcp add --transport http spool http://127.0.0.1:3004/mcp
 ```
 
 Open **http://localhost:3003** and you're in.
@@ -134,10 +136,75 @@ spool serve --host 0.0.0.0     # Bind to all interfaces
 
 ### `spool ui`
 
-Start both the API server and the Next.js UI together.
+Start the API server, the MCP HTTP server, and the Next.js UI together.
 
 ```bash
 spool ui
+```
+
+### `spool mcp`
+
+Start the Spool MCP server on its own. Defaults to streamable-HTTP at
+`http://127.0.0.1:3004/mcp`, which any MCP-compatible agent can connect to
+by URL. `spool ui` already launches this alongside the API, so you only
+need to run it directly when you want the MCP server without the GUI.
+
+```bash
+spool mcp              # streamable-HTTP at http://127.0.0.1:3004/mcp (default)
+spool mcp --stdio      # stdio transport, for stdio-only clients
+```
+
+---
+
+## MCP Endpoint
+
+Spool exposes an MCP server so any AI agent can query your session history
+as a context source. The server runs over **streamable-HTTP** at
+`http://127.0.0.1:3004/mcp` and is started automatically alongside `spool
+ui`.
+
+Drop this into your MCP client config (`~/.mcp.json`, Claude Code, Cursor,
+Codex, or any other streamable-HTTP capable agent):
+
+```json
+{
+  "mcpServers": {
+    "spool": {
+      "url": "http://127.0.0.1:3004/mcp"
+    }
+  }
+}
+```
+
+Or register it with Claude Code directly:
+
+```bash
+claude mcp add --transport http spool http://127.0.0.1:3004/mcp
+```
+
+The **Settings** page in the GUI shows the endpoint URL, a copy button, and
+the full config snippet so you don't have to remember it.
+
+### Tools exposed
+
+| Tool | Purpose |
+|------|---------|
+| `list_traces` | Recent Spool traces, filterable by provider/project |
+| `get_trace` | Full detail for one trace: header, spans, eval scores |
+| `search_sessions` | Semantic search over embedded session chunks |
+| `get_stats` | Top-line stats: traces, tokens, cost, errors |
+| `get_top_vendors` | Most-used external vendors by tool-call count |
+| `list_evals` | Recent eval runs, optionally filtered by rubric |
+| `list_rubrics` | All configured Strands eval rubrics |
+| `run_eval` | Run a rubric against a trace and persist the result |
+
+### Stdio (legacy clients)
+
+For MCP clients that only speak stdio, run `spool mcp --stdio` and register
+it with the command-based form:
+
+```bash
+claude mcp add spool $(pwd)/.venv/bin/spool mcp --stdio
 ```
 
 ---
@@ -244,6 +311,7 @@ spool/
 | PostgreSQL | 5434 |
 | API Server | 3002 |
 | GUI | 3003 |
+| MCP Server (streamable-HTTP) | 3004 |
 
 ---
 

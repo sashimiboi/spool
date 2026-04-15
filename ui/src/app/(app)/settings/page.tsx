@@ -47,8 +47,9 @@ interface AgentStatus {
     name: string;
     transport: string;
     tools: string[];
-    command: string;
-    args: string[];
+    url: string;
+    host: string;
+    port: number;
     purpose: string;
     connected: boolean;
   };
@@ -69,7 +70,8 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -162,19 +164,81 @@ export default function SettingsPage() {
               name={agents.mcp.name}
               role="MCP"
               connected={agents.mcp.connected}
-              model={`${agents.mcp.tools.length} tools · stdio`}
+              model={`${agents.mcp.tools.length} tools · streamable-http`}
               provider="mcp"
               purpose={agents.mcp.purpose}
-              linkLabel="Copy install command"
-              copyValue={`claude mcp add spool ${agents.mcp.command} ${agents.mcp.args.join(' ')}`}
-              copied={copiedCmd}
-              onCopy={() => {
-                navigator.clipboard.writeText(`claude mcp add spool ${agents.mcp.command} ${agents.mcp.args.join(' ')}`);
-                setCopiedCmd(true);
-                setTimeout(() => setCopiedCmd(false), 1800);
-              }}
               tools={agents.mcp.tools}
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* MCP endpoint */}
+      {agents && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal flex items-center gap-2">
+              <Plug className="h-3.5 w-3.5" /> MCP Endpoint
+            </CardTitle>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Connect any MCP-compatible agent (Claude Code, Codex, Cursor, web agents) to Spool over streamable-HTTP.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1 block">Server URL</label>
+              <div className="flex gap-2">
+                <code className="flex-1 bg-secondary px-2.5 py-1.5 rounded-md text-[12px] font-mono truncate">
+                  {agents.mcp.url}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-[11px]"
+                  onClick={() => {
+                    navigator.clipboard.writeText(agents.mcp.url);
+                    setCopiedUrl(true);
+                    setTimeout(() => setCopiedUrl(false), 1800);
+                  }}
+                >
+                  {copiedUrl ? <Check className="h-3 w-3 mr-1 text-emerald-500" /> : <Terminal className="h-3 w-3 mr-1" />}
+                  {copiedUrl ? 'Copied!' : 'Copy URL'}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1 block">Client config</label>
+              <pre className="bg-secondary rounded-md p-2.5 text-[11px] font-mono overflow-x-auto leading-snug">
+{`{
+  "mcpServers": {
+    "spool": {
+      "url": "${agents.mcp.url}"
+    }
+  }
+}`}
+              </pre>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-[11px]"
+                  onClick={() => {
+                    const snippet = `{\n  "mcpServers": {\n    "spool": {\n      "url": "${agents.mcp.url}"\n    }\n  }\n}`;
+                    navigator.clipboard.writeText(snippet);
+                    setCopiedConfig(true);
+                    setTimeout(() => setCopiedConfig(false), 1800);
+                  }}
+                >
+                  {copiedConfig ? <Check className="h-3 w-3 mr-1 text-emerald-500" /> : <Terminal className="h-3 w-3 mr-1" />}
+                  {copiedConfig ? 'Copied!' : 'Copy config'}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Paste into <code className="bg-secondary px-1 rounded text-[10px]">~/.mcp.json</code> or your agent&apos;s MCP config.
+                Spool runs locally at <code className="bg-secondary px-1 rounded text-[10px]">{agents.mcp.host}:{agents.mcp.port}</code>.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

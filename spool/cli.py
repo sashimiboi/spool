@@ -370,40 +370,53 @@ def experiment_show(run_id):
 
 
 @cli.command()
-def mcp():
-    """Launch the Spool MCP server over stdio.
+@click.option("--stdio", is_flag=True, help="Use stdio transport (default is streamable-HTTP)")
+def mcp(stdio):
+    """Launch the Spool MCP server.
 
-    Wire this into your MCP client config (Claude Code's mcpServers,
-    Codex, Cursor, etc.) so agents can query Spool as a context source.
+    Defaults to streamable-HTTP at http://127.0.0.1:3004/mcp so any
+    MCP-compatible agent (Claude Code, Codex, Cursor, web agents) can
+    connect by URL. Pass --stdio for stdio-only clients.
     """
-    from spool.mcp_server import serve_stdio
-    serve_stdio()
+    if stdio:
+        from spool.mcp_server import serve_stdio
+        console.print("[bold]Spool MCP[/bold] over stdio")
+        serve_stdio()
+    else:
+        from spool.mcp_server import serve_http, MCP_URL
+        console.print(f"[bold]Spool MCP[/bold] at {MCP_URL}")
+        serve_http()
 
 
 @cli.command()
 def ui():
-    """Launch both the API server and Next.js UI."""
+    """Launch the API server, MCP HTTP server, and Next.js UI together."""
     import subprocess
     import os
+    import sys
 
     ui_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui")
 
     console.print("[bold]Starting Spool...[/bold]")
     console.print("  API:  http://127.0.0.1:3002")
-    console.print("  UI:   http://localhost:3001")
+    console.print("  MCP:  http://127.0.0.1:3004/mcp")
+    console.print("  UI:   http://localhost:3003")
 
-    # Start API in background
     api_proc = subprocess.Popen(
         ["python3", "-m", "uvicorn", "spool.server:app", "--host", "127.0.0.1", "--port", "3002", "--log-level", "warning"],
     )
 
-    # Start Next.js dev server
+    mcp_proc = subprocess.Popen(
+        [sys.executable, "-m", "spool.mcp_server"],
+    )
+
     try:
         subprocess.run(["npm", "run", "dev"], cwd=ui_dir)
     except KeyboardInterrupt:
         pass
     finally:
         api_proc.terminate()
+        mcp_proc.terminate()
 
 
 if __name__ == "__main__":

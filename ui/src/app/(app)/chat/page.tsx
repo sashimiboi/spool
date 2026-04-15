@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare } from 'lucide-react';
@@ -238,7 +240,15 @@ export default function ChatPage() {
                   ? 'bg-primary text-primary-foreground rounded-xl rounded-br-sm px-3 py-2'
                   : 'bg-secondary rounded-xl rounded-bl-sm px-3 py-2'
               }`}>
-                <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                {m.role === 'user' ? (
+                  <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                ) : (
+                  <div className="text-[13px] leading-relaxed prose prose-sm max-w-none dark:prose-invert prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-background prose-pre:text-[11px] prose-code:text-[11px] prose-code:bg-background prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:mt-2 prose-headings:mb-1 prose-headings:text-[13px] prose-headings:font-semibold prose-a:text-primary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {m.content || ''}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
               {m.role === 'user' && (
                 <div className="w-7 h-7 rounded-md bg-secondary flex items-center justify-center shrink-0 mt-0.5">
