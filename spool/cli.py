@@ -388,6 +388,44 @@ def mcp(stdio):
         serve_http()
 
 
+def _check_ollama_preflight() -> None:
+    """Ping Ollama at the configured URL and warn if it's down.
+
+    Non-blocking: Spool still starts because the user may have switched
+    the chat agent to Anthropic, and LLM-judge evals are opt-in. The
+    warning makes it obvious why evals/chat would fail with "All
+    connection attempts failed" otherwise.
+    """
+    import urllib.request
+    import urllib.error
+
+    ollama_url = "http://localhost:11434"
+    try:
+        from spool.db import get_connection
+        conn = get_connection()
+        try:
+            row = conn.execute(
+                "SELECT config FROM providers WHERE id = 'spool-agent'"
+            ).fetchone()
+        finally:
+            conn.close()
+        cfg = (row["config"] if row and isinstance(row.get("config"), dict) else {}) if row else {}
+        ollama_url = cfg.get("ollama_url") or ollama_url
+    except Exception:
+        pass
+
+    try:
+        urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=1.5).read()
+    except (urllib.error.URLError, TimeoutError, OSError):
+        console.print(
+            f"[yellow]  ! Ollama is not reachable at {ollama_url}.[/yellow]"
+        )
+        console.print(
+            "[dim]    Chat and LLM-judge evals will fail until you run:[/dim] "
+            "[bold]ollama serve[/bold]"
+        )
+
+
 @cli.command()
 def ui():
     """Launch the API server, MCP HTTP server, and Next.js UI together."""
@@ -401,6 +439,10 @@ def ui():
     console.print("  API:  http://127.0.0.1:3002")
     console.print("  MCP:  http://127.0.0.1:3004/mcp")
     console.print("  UI:   http://localhost:3003")
+
+    # Preflight: warn if Ollama is down — otherwise chat + judge will fail
+    # silently with "All connection attempts failed" from httpx.
+    _check_ollama_preflight()
 
     api_proc = subprocess.Popen(
         ["python3", "-m", "uvicorn", "spool.server:app", "--host", "127.0.0.1", "--port", "3002", "--log-level", "warning"],
