@@ -29,8 +29,28 @@ interface TraceListRow {
   model: string | null;
 }
 
+interface CostBreakdown {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  model: string | null;
+}
+
 interface TraceDetail {
-  trace: TraceListRow & { total_input_tokens: number; total_output_tokens: number; cwd: string | null; git_branch: string | null };
+  trace: TraceListRow & {
+    total_input_tokens: number;
+    total_output_tokens: number;
+    total_cache_read_tokens?: number;
+    total_cache_write_tokens?: number;
+    cwd: string | null;
+    git_branch: string | null;
+    cost_breakdown?: CostBreakdown;
+  };
   spans: Span[];
   evals: Array<{ id: number; rubric_id: string; rubric_name: string; span_id: string | null; score: number | null; passed: boolean | null; label: string; rationale: string; run_at: string }>;
 }
@@ -232,13 +252,13 @@ export default function TracesPage() {
             ['Tools', t.tool_count],
             ['LLM calls', t.llm_count],
             ['Errors', t.error_count],
-            ['Cost', formatCost(Number(t.total_cost_usd) || 0)],
           ].map(([label, val]) => (
             <div key={label as string}>
               <div className="text-[11px] text-muted-foreground mb-0.5">{label}</div>
               <div className="font-medium">{val}</div>
             </div>
           ))}
+          <CostCell trace={t} />
         </div>
 
         <Tabs defaultValue="conversation">
@@ -607,5 +627,65 @@ export default function TracesPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function CostCell({ trace }: { trace: TraceDetail['trace'] }) {
+  const total = Number(trace.total_cost_usd) || 0;
+  const b = trace.cost_breakdown;
+  return (
+    <div className="relative group">
+      <div className="text-[11px] text-muted-foreground mb-0.5 flex items-center gap-1">
+        Cost
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/70 cursor-help">
+          API equiv
+        </span>
+      </div>
+      <div className="font-medium">{formatCost(total)}</div>
+
+      {b && (
+        <div
+          role="tooltip"
+          className="absolute left-0 top-full mt-2 z-20 w-80 rounded-lg border border-border bg-popover shadow-xl p-3 pointer-events-none opacity-0 group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Cost breakdown {b.model && <span className="text-[10px] normal-case font-mono text-muted-foreground/80">· {b.model}</span>}
+          </div>
+          <table className="w-full text-[12px] tabular-nums">
+            <tbody>
+              <CostRow label="Input" tokens={b.input_tokens} cost={b.input} />
+              <CostRow label="Output" tokens={b.output_tokens} cost={b.output} />
+              <CostRow label="Cache read" tokens={b.cache_read_tokens} cost={b.cache_read} />
+              <CostRow label="Cache write" tokens={b.cache_write_tokens} cost={b.cache_write} />
+              <tr className="border-t border-border">
+                <td className="py-1.5 pt-2 text-muted-foreground">Total</td>
+                <td className="py-1.5 pt-2 text-right text-muted-foreground">—</td>
+                <td className="py-1.5 pt-2 text-right font-semibold">{formatCost(total)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-2 text-[10px] text-muted-foreground leading-snug">
+            Computed at Anthropic API rates. If you&apos;re on a Claude subscription (Pro / Max), your actual billing is capped by your plan and won&apos;t match this number.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CostRow({ label, tokens, cost }: { label: string; tokens: number; cost: number }) {
+  const pct = cost > 0 ? cost : 0;
+  return (
+    <tr>
+      <td className="py-1 text-muted-foreground">{label}</td>
+      <td className="py-1 text-right text-muted-foreground/80">{formatTokens(tokens)}</td>
+      <td className="py-1 text-right">{pct > 0 ? formatCost(pct) : '—'}</td>
+    </tr>
   );
 }

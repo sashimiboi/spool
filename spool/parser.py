@@ -271,12 +271,17 @@ def _cost_for_usage(model: str | None, usage: dict | None) -> float:
     if not usage:
         return 0.0
     in_rate, out_rate = _price_for(model)
-    it = (usage.get("input_tokens") or 0) + (usage.get("cache_creation_input_tokens") or 0)
-    ot = usage.get("output_tokens") or 0
+    raw_input = usage.get("input_tokens") or 0
+    cache_write = usage.get("cache_creation_input_tokens") or 0
     cache_read = usage.get("cache_read_input_tokens") or 0
-    # Cache reads are ~10% of input cost in Anthropic's pricing.
+    ot = usage.get("output_tokens") or 0
+    # Anthropic prompt caching (5-minute TTL): writes cost 1.25x the input
+    # rate, reads cost 0.10x. See https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
     return round(
-        (it * in_rate + ot * out_rate + cache_read * in_rate * 0.1) / 1_000_000,
+        (raw_input * in_rate
+         + ot * out_rate
+         + cache_write * in_rate * 1.25
+         + cache_read * in_rate * 0.10) / 1_000_000,
         6,
     )
 

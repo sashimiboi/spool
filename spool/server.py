@@ -357,10 +357,54 @@ async def api_trace_detail(trace_id: str):
     ).fetchall()
     conn.close()
 
+    trace_dict = dict(trace)
+    breakdown = _breakdown_cost_for_trace(trace_dict)
+    trace_dict["cost_breakdown"] = breakdown
+    # Recompute total_cost_usd from the live breakdown so the header number
+    # stays in sync with the tooltip components even when rows were ingested
+    # under an older pricing formula.
+    trace_dict["total_cost_usd"] = round(
+        breakdown["input"] + breakdown["output"]
+        + breakdown["cache_read"] + breakdown["cache_write"],
+        6,
+    )
     return {
-        "trace": dict(trace),
+        "trace": trace_dict,
         "spans": [dict(s) for s in spans],
         "evals": [dict(e) for e in evals],
+    }
+
+
+def _breakdown_cost_for_trace(trace: dict) -> dict:
+    """Split a trace's total cost into input / output / cache_read / cache_write.
+
+    Uses the same Anthropic 5-minute prompt-caching formula the parser uses:
+    input at full rate, output at full output rate, cache writes at 1.25x
+    the input rate, cache reads at 0.10x. Returned as dollars so the GUI
+    can render a breakdown tooltip without having to know model pricing.
+    """
+    from spool.config import MODEL_PRICING, DEFAULT_PRICING
+
+    model = trace.get("model") or ""
+    in_rate, out_rate = MODEL_PRICING.get(model, DEFAULT_PRICING)
+    in_tok = int(trace.get("total_input_tokens") or 0)
+    out_tok = int(trace.get("total_output_tokens") or 0)
+    cr = int(trace.get("total_cache_read_tokens") or 0)
+    cw = int(trace.get("total_cache_write_tokens") or 0)
+
+    def rate(tokens: int, per_m: float) -> float:
+        return round(tokens * per_m / 1_000_000, 6)
+
+    return {
+        "input": rate(in_tok, in_rate),
+        "output": rate(out_tok, out_rate),
+        "cache_write": rate(cw, in_rate * 1.25),
+        "cache_read": rate(cr, in_rate * 0.10),
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "cache_read_tokens": cr,
+        "cache_write_tokens": cw,
+        "model": model or None,
     }
 
 
