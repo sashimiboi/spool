@@ -65,6 +65,18 @@ function formatDuration(ms: number | null): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
+// Show up to 3 decimals but always at least 2, so 0.926 reads as "0.926"
+// instead of collapsing to 0.93 (which made failing rubrics look like
+// passing rubrics), while 0.93 stays "0.93" and 1 stays "1.00".
+function formatScore(score: number): string {
+  const fixed = score.toFixed(3);
+  if (fixed.endsWith('0')) {
+    const trimmed = fixed.slice(0, -1);
+    return trimmed.endsWith('.') ? trimmed + '00' : trimmed;
+  }
+  return fixed;
+}
+
 type WindowKey = 'all' | '24h' | '7d' | '30d';
 const WINDOW_DAYS: Record<WindowKey, number | null> = {
   all: null, '24h': 1, '7d': 7, '30d': 30,
@@ -200,8 +212,14 @@ export default function TracesPage() {
         </Button>
 
         <div>
-          <h1 className="text-base font-semibold truncate">{t.title || 'Untitled trace'}</h1>
-          <p className="text-[11px] text-muted-foreground font-mono">{t.id}</p>
+          {t.title ? (
+            <>
+              <h1 className="text-base font-semibold truncate">{t.title}</h1>
+              <p className="text-[11px] text-muted-foreground font-mono">{t.id}</p>
+            </>
+          ) : (
+            <h1 className="text-base font-semibold font-mono truncate">{t.id}</h1>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-5 text-[13px] py-3 px-4 rounded-lg bg-card border">
@@ -383,7 +401,15 @@ export default function TracesPage() {
                             <span className="text-[13px] font-medium">{e.rubric_name}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            {e.score !== null && <span className="tabular-nums">score: {Number(e.score).toFixed(2)}</span>}
+                            {e.score !== null && (
+                              <span className={cn(
+                                'tabular-nums',
+                                e.passed === false && 'text-destructive',
+                                e.passed === true && 'text-emerald-500',
+                              )}>
+                                {formatScore(Number(e.score))}
+                              </span>
+                            )}
                             {e.label && <Badge variant="outline">{e.label}</Badge>}
                           </div>
                         </div>
@@ -549,7 +575,12 @@ export default function TracesPage() {
                 className="flex items-center gap-4 px-4 py-2.5 hover:bg-accent/50 cursor-pointer"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium truncate">{t.title || 'Untitled'}</div>
+                  <div className={cn(
+                    'text-[13px] truncate',
+                    t.title ? 'font-medium' : 'font-mono text-muted-foreground',
+                  )}>
+                    {t.title || t.id}
+                  </div>
                   <div className="text-[11px] text-muted-foreground truncate">
                     {t.provider_id} · {cleanProject(t.project || '')} · {formatDate(t.started_at)}
                   </div>
