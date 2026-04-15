@@ -10,6 +10,7 @@ import { ModuleRegistry as GridModuleRegistry, AllCommunityModule as GridAllComm
 import { useTheme } from '@/components/ThemeProvider';
 import { getGridTheme } from '@/lib/agGridTheme';
 import { fetchApi, formatNumber, formatCost, cleanProject } from '@/lib/api';
+import ActivityChart from '@/components/ActivityChart';
 
 ChartsModuleRegistry.registerModules([ChartsAllCommunityModule]);
 GridModuleRegistry.registerModules([GridAllCommunityModule]);
@@ -180,38 +181,6 @@ export default function AnalyticsPage() {
 
   const baseOpts = { background: { fill: 'transparent' }, padding: { top: 8, right: 10, bottom: 0, left: 0 } };
 
-  const activityChart: any = {
-    data: daily.map(d => ({
-      day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      messages: d.messages, toolCalls: d.tool_calls,
-    })),
-    series: [
-      { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', fill: primaryFill, cornerRadius: 3 },
-      { type: 'bar', xKey: 'day', yKey: 'toolCalls', yName: 'Tool Calls', fill: mutedFill, cornerRadius: 3 },
-    ],
-    axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 10, color: textColor, rotation: -45 } },
-      { type: 'number', position: 'left', label: { fontSize: 10, color: textColor }, gridLine: { style: [{ stroke: gridColor }] } },
-    ],
-    legend: { position: 'bottom', item: { label: { fontSize: 10, color: textColor } } },
-    ...baseOpts,
-  };
-
-  const costChart: any = {
-    data: daily.map(d => ({
-      day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      cost: Number((d.cost || 0).toFixed(2)),
-    })),
-    series: [
-      { type: 'area', xKey: 'day', yKey: 'cost', yName: 'Cost ($)', fill: '#10b981', fillOpacity: 0.12, stroke: '#10b981', strokeWidth: 2 },
-    ],
-    axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 10, color: textColor, rotation: -45 } },
-      { type: 'number', position: 'left', label: { fontSize: 10, color: textColor, formatter: (p: any) => `$${p.value}` }, gridLine: { style: [{ stroke: gridColor }] } },
-    ],
-    legend: { enabled: false }, ...baseOpts,
-  };
-
   const tokenChart: any = {
     data: daily.map(d => ({
       day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -286,28 +255,18 @@ export default function AnalyticsPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg font-semibold tracking-tight">Analytics</h1>
-        <div className="flex items-center gap-2">
-          {providers.length > 1 && (
-            <Tabs value={providerFilter} onValueChange={(v) => { setProviderFilter(v); setLoading(true); }}>
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                {providers.map((p) => (
-                  <TabsTrigger key={p.provider_id} value={p.provider_id}>
-                    {PROVIDER_LABELS[p.provider_id] || p.provider_id}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
-          <Tabs value={String(days)} onValueChange={(v) => { setDays(Number(v)); setLoading(true); }}>
+        {providers.length > 1 && (
+          <Tabs value={providerFilter} onValueChange={(v) => { setProviderFilter(v); setLoading(true); }}>
             <TabsList>
-              <TabsTrigger value="7">7d</TabsTrigger>
-              <TabsTrigger value="14">14d</TabsTrigger>
-              <TabsTrigger value="30">30d</TabsTrigger>
-              <TabsTrigger value="90">90d</TabsTrigger>
+              <TabsTrigger value="all">All</TabsTrigger>
+              {providers.map((p) => (
+                <TabsTrigger key={p.provider_id} value={p.provider_id}>
+                  {PROVIDER_LABELS[p.provider_id] || p.provider_id}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
-        </div>
+        )}
       </div>
 
       {/* Summary */}
@@ -362,25 +321,12 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Charts */}
-      <div className="grid md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Messages & Tool Calls</CardTitle></CardHeader>
-          <CardContent>
-            <div className="h-[260px] w-full overflow-hidden">
-              <AgCharts options={{ ...activityChart, width: undefined, height: 260 }} />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium text-foreground normal-case tracking-normal">Estimated Cost</CardTitle></CardHeader>
-          <CardContent>
-            <div className="h-[260px] w-full overflow-hidden">
-              <AgCharts options={{ ...costChart, width: undefined, height: 260 }} />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Primary activity chart — CGM-inspired pill filters + line chart */}
+      <ActivityChart
+        data={daily}
+        days={days}
+        onDaysChange={(d) => { setDays(d); setLoading(true); }}
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card>

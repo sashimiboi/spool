@@ -41,7 +41,19 @@ export default function ChatPage() {
   const [modelInfo, setModelInfo] = useState<{ provider: string; model: string; connected?: boolean; purpose?: string } | null>(null);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatSession[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const data = await fetchApi('/api/chat/sessions?limit=30');
+      setHistory(Array.isArray(data) ? data : []);
+      setHistoryError(null);
+    } catch (e) {
+      console.error('[chat] loadHistory failed:', e);
+      setHistoryError(e instanceof Error ? e.message : 'Failed to load chat history');
+    }
+  }, []);
 
   useEffect(() => {
     fetchApi('/api/settings/agents').then((a) => {
@@ -59,17 +71,11 @@ export default function ChatPage() {
       }).catch(() => {});
     });
     loadHistory();
-  }, []);
+  }, [loadHistory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const loadHistory = async () => {
-    try {
-      setHistory(await fetchApi('/api/chat/sessions?limit=30'));
-    } catch (e) { console.error(e); }
-  };
 
   const send = async (text?: string) => {
     const msg = text || input.trim();
@@ -161,8 +167,17 @@ export default function ChatPage() {
               </button>
             </div>
           ))}
-          {history.length === 0 && (
+          {history.length === 0 && !historyError && (
             <p className="text-[11px] text-muted-foreground text-center py-4">No chat history yet</p>
+          )}
+          {historyError && (
+            <div className="text-[11px] text-center py-4 space-y-1.5">
+              <p className="text-amber-500">Could not load history</p>
+              <p className="text-muted-foreground break-words px-1">{historyError}</p>
+              <button onClick={loadHistory} className="underline underline-offset-2 text-muted-foreground hover:text-foreground">
+                Retry
+              </button>
+            </div>
           )}
         </div>
       </div>

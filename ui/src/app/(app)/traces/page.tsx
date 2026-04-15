@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback, type JSX } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -140,6 +141,38 @@ export default function TracesPage() {
       } catch { /* messages not available */ }
     } catch (e) { console.error(e); }
   }, []);
+
+  // Deep link: ?trace=<id> opens a specific trace, ?session=<id> looks up
+  // the trace for that session and opens it. Used by the Sessions page's
+  // "View trace" button so you can jump from a session's conversation to
+  // its span tree and evals without losing context.
+  const searchParams = useSearchParams();
+  const traceParam = searchParams.get('trace');
+  const sessionParam = searchParams.get('session');
+  useEffect(() => {
+    let cancelled = false;
+    const deepLink = async () => {
+      if (traceParam) {
+        await openTrace(traceParam);
+        return;
+      }
+      if (sessionParam) {
+        try {
+          const detail = await fetchApi(`/api/session/${sessionParam}/trace`);
+          if (cancelled) return;
+          if (detail && !('error' in detail) && detail.trace?.id) {
+            await openTrace(detail.trace.id);
+          } else {
+            console.warn('[traces] no trace for session', sessionParam);
+          }
+        } catch (e) {
+          console.error('[traces] session lookup failed:', e);
+        }
+      }
+    };
+    deepLink();
+    return () => { cancelled = true; };
+  }, [traceParam, sessionParam, openTrace]);
 
   const runRubric = async (rubricId: string) => {
     if (!selected) return;

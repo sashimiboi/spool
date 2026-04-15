@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, ArrowUp, ArrowDown, Copy, Check, Search, X, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowLeft, ArrowUp, ArrowDown, Copy, Check, Search, X, ExternalLink, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community';
@@ -744,6 +745,14 @@ export default function SessionsPage() {
                 {val}
               </span>
             ))}
+            <Link
+              href={`/traces?session=${sess.id}`}
+              className="ml-1 inline-flex items-center gap-1 text-[12px] font-medium text-primary hover:text-primary/80 px-2 py-0.5 rounded border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
+              title="Open this session's trace"
+            >
+              <Activity className="h-3 w-3" />
+              View trace
+            </Link>
           </div>
         </div>
 
