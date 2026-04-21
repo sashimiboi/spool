@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { FilterSelect, type FilterOption } from '@/components/ui/filter-select';
 import { CheckCircle2, XCircle, AlertCircle, Play, ClipboardList, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchApi, postApi, formatDate } from '@/lib/api';
@@ -241,24 +241,14 @@ export default function EvalsPage() {
         ))}
       </div>
 
-      {/* Window selector + last-run status */}
+      {/* Bulk-run window selector */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
-          {WINDOWS.map(w => (
-            <button
-              key={w.key}
-              onClick={() => setBulkWindow(w.key)}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                bulkWindow === w.key
-                  ? 'bg-accent text-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
+        <FilterSelect
+          label="Run window"
+          value={bulkWindow}
+          onChange={(v) => setBulkWindow(v as Window)}
+          options={WINDOWS.map(w => ({ value: w.key, label: w.label }))}
+        />
         {lastRun && (
           <span className="text-[12px] text-muted-foreground">{lastRun}</span>
         )}
@@ -273,59 +263,34 @@ export default function EvalsPage() {
           placeholder="Search session, trace, project, label, rationale..."
           className="flex-1 min-w-[240px] max-w-md h-9 px-3 rounded-md border bg-card text-[13px]"
         />
-        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
-          {(['all', 'passed', 'failed', 'null'] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => setPassFilter(k)}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                passFilter === k ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {k === 'null' ? 'skipped' : k}
-            </button>
-          ))}
-        </div>
+        <FilterSelect
+          label="Status"
+          value={passFilter}
+          onChange={(v) => setPassFilter(v as typeof passFilter)}
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'passed', label: 'Passed' },
+            { value: 'failed', label: 'Failed' },
+            { value: 'null', label: 'Skipped' },
+          ]}
+        />
         {availableProviders.length > 1 && (
-          <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
-            <button
-              onClick={() => setProviderFilter(null)}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                providerFilter === null ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              All providers
-            </button>
-            {availableProviders.slice(0, 6).map((p) => (
-              <button
-                key={p}
-                onClick={() => setProviderFilter(providerFilter === p ? null : p)}
-                className={cn(
-                  'px-2.5 py-1 rounded transition-colors',
-                  providerFilter === p ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
+          <FilterSelect
+            label="Provider"
+            value={providerFilter ?? 'all'}
+            onChange={(v) => setProviderFilter(v === 'all' ? null : v)}
+            options={[
+              { value: 'all', label: 'All providers' } as FilterOption,
+              ...availableProviders.map((p) => ({ value: p, label: p })),
+            ]}
+          />
         )}
-        <div className="flex items-center rounded-md border bg-card p-0.5 text-[12px]">
-          {WINDOWS.map((w) => (
-            <button
-              key={w.key}
-              onClick={() => setListWindow(w.key)}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                listWindow === w.key ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
+        <FilterSelect
+          label="Window"
+          value={listWindow}
+          onChange={(v) => setListWindow(v as Window)}
+          options={WINDOWS.map(w => ({ value: w.key, label: w.label }))}
+        />
         {(search || rubricFilter || providerFilter || passFilter !== 'all' || listWindow !== 'all') && (
           <Button
             variant="ghost"

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FilterSelect, type FilterOption } from '@/components/ui/filter-select';
 import { AgCharts } from 'ag-charts-react';
 import { ModuleRegistry as ChartsModuleRegistry, AllCommunityModule as ChartsAllCommunityModule } from 'ag-charts-community';
 import { AgGridReact } from 'ag-grid-react';
@@ -11,6 +11,14 @@ import { useTheme } from '@/components/ThemeProvider';
 import { getGridTheme } from '@/lib/agGridTheme';
 import { fetchApi, formatNumber, formatCost, cleanProject } from '@/lib/api';
 import ActivityChart from '@/components/ActivityChart';
+import {
+  baseChartOptions,
+  categoryAxis,
+  valueAxis,
+  donutSeries,
+  getChartTokens,
+  CATEGORICAL_PALETTE,
+} from '@/lib/agChartTheme';
 
 ChartsModuleRegistry.registerModules([ChartsAllCommunityModule]);
 GridModuleRegistry.registerModules([GridAllCommunityModule]);
@@ -82,12 +90,9 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const isDark = resolved === 'dark';
   const gridTheme = useMemo(() => getGridTheme(resolved), [resolved]);
-  const textColor = isDark ? '#6b6b80' : '#8b8b9e';
-  const gridColor = isDark ? '#2a2a3c' : '#f0f0f2';
-  const primaryFill = isDark ? '#8b7cf6' : '#7c5cfc';
-  const mutedFill = isDark ? '#3f3f50' : '#d4d4d8';
+  const tokens = getChartTokens(resolved);
+  const base = baseChartOptions(resolved);
 
   // --- ag-grid: Daily Breakdown ---
   const dailyColDefs = useMemo<ColDef[]>(() => [
@@ -179,73 +184,132 @@ export default function AnalyticsPage() {
     total_cost_usd: rollup.cost,
   };
 
-  const baseOpts = { background: { fill: 'transparent' }, padding: { top: 8, right: 10, bottom: 0, left: 0 } };
+  const projectData = [...overview.projects]
+    .sort((a, b) => b.messages - a.messages)
+    .slice(0, 8)
+    .map(p => ({ project: cleanProject(p.project), messages: p.messages }));
+
+  const toolChartData = [...tools]
+    .sort((a, b) => b.uses - a.uses)
+    .slice(0, 10)
+    .map(t => ({ tool: t.tool_name, uses: t.uses }));
 
   const tokenChart: any = {
+    ...base,
     data: daily.map(d => ({
       day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       tokens: d.total_tokens,
     })),
     series: [
-      { type: 'area', xKey: 'day', yKey: 'tokens', yName: 'Tokens', fill: primaryFill, fillOpacity: 0.1, stroke: primaryFill, strokeWidth: 2 },
+      {
+        type: 'area',
+        xKey: 'day',
+        yKey: 'tokens',
+        yName: 'Tokens',
+        fill: tokens.hero,
+        fillOpacity: 0.12,
+        stroke: tokens.hero,
+        strokeWidth: 2,
+        interpolation: { type: 'smooth' },
+        marker: { enabled: false },
+      },
     ],
-    axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 10, color: textColor, rotation: -45 } },
-      { type: 'number', position: 'left', label: { fontSize: 10, color: textColor }, gridLine: { style: [{ stroke: gridColor }] } },
-    ],
-    legend: { enabled: false }, ...baseOpts,
+    axes: [categoryAxis(resolved, { rotation: -45 }), valueAxis(resolved, { formatter: (p: any) => formatNumber(p.value) })],
+    legend: { enabled: false },
   };
 
+  const totalProjectMessages = projectData.reduce((sum, p) => sum + p.messages, 0);
   const projectChart: any = {
-    data: overview.projects.slice(0, 8).map(p => ({
-      project: cleanProject(p.project), messages: p.messages,
-    })),
+    ...base,
+    data: projectData,
     series: [
-      { type: 'bar', xKey: 'project', yKey: 'messages', yName: 'Messages', fill: primaryFill, cornerRadius: 3 },
+      {
+        type: 'bar',
+        xKey: 'project',
+        yKey: 'messages',
+        yName: 'Messages',
+        // Hero = biggest project; rest muted so the eye lands on the leader.
+        fill: tokens.hero,
+        itemStyler: ({ datum }: any) => ({
+          fill: datum.project === projectData[0]?.project ? tokens.hero : tokens.muted,
+        }),
+        cornerRadius: 3,
+        label: {
+          enabled: true,
+          color: tokens.text,
+          fontSize: 10,
+          formatter: ({ value }: any) => formatNumber(value),
+          placement: 'outside-end',
+        },
+      },
     ],
-    axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 10, color: textColor, rotation: -30 } },
-      { type: 'number', position: 'left', label: { fontSize: 10, color: textColor }, gridLine: { style: [{ stroke: gridColor }] } },
-    ],
-    legend: { enabled: false }, ...baseOpts,
+    axes: [categoryAxis(resolved, { rotation: -30 }), valueAxis(resolved, { formatter: (p: any) => formatNumber(p.value) })],
+    legend: { enabled: false },
   };
 
-  const toolChartData = tools.slice(0, 10).map(t => ({ tool: t.tool_name, uses: t.uses }));
-
+  const totalToolUses = toolChartData.reduce((sum, t) => sum + t.uses, 0);
   const toolPieChart: any = {
+    ...base,
     data: toolChartData,
-    series: [{
-      type: 'pie', angleKey: 'uses', legendItemKey: 'tool', innerRadiusRatio: 0.5,
-      fills: [primaryFill, '#6b6b80', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#6366f1', '#84cc16', '#14b8a6'],
-      strokeWidth: 0,
-    }],
-    legend: { position: 'right', item: { label: { fontSize: 10, color: textColor } } }, ...baseOpts,
+    series: [
+      donutSeries({
+        angleKey: 'uses',
+        labelKey: 'tool',
+        fills: CATEGORICAL_PALETTE,
+        centerTitle: 'tool calls',
+        centerValue: formatNumber(totalToolUses),
+        resolved,
+      }),
+    ],
+    legend: { enabled: false },
   };
 
   const toolBarChart: any = {
+    ...base,
     data: toolChartData,
     series: [
-      { type: 'bar', direction: 'horizontal', xKey: 'tool', yKey: 'uses', yName: 'Uses', fill: primaryFill, cornerRadius: 3 },
+      {
+        type: 'bar',
+        direction: 'horizontal',
+        xKey: 'tool',
+        yKey: 'uses',
+        yName: 'Uses',
+        fill: tokens.hero,
+        itemStyler: ({ datum }: any) => ({
+          fill: datum.tool === toolChartData[0]?.tool ? tokens.hero : tokens.muted,
+        }),
+        cornerRadius: 3,
+        label: {
+          enabled: true,
+          color: tokens.text,
+          fontSize: 10,
+          formatter: ({ value }: any) => formatNumber(value),
+          placement: 'outside-end',
+        },
+      },
     ],
-    axes: [
-      { type: 'category', position: 'left', label: { fontSize: 10, color: textColor } },
-      { type: 'number', position: 'bottom', label: { fontSize: 10, color: textColor }, gridLine: { style: [{ stroke: gridColor }] } },
-    ],
-    legend: { enabled: false }, ...baseOpts,
+    axes: [categoryAxis(resolved, { position: 'left' }), valueAxis(resolved, { position: 'bottom', formatter: (p: any) => formatNumber(p.value) })],
+    legend: { enabled: false },
   };
 
+  const totalProviderSessions = providers.reduce((sum, p) => sum + p.sessions, 0);
   const providerPieChart: any = providers.length > 1 ? {
+    ...base,
     data: providers.map(p => ({
       provider: PROVIDER_LABELS[p.provider_id] || p.provider_id,
       sessions: p.sessions,
     })),
-    series: [{
-      type: 'pie', angleKey: 'sessions', legendItemKey: 'provider', innerRadiusRatio: 0.55,
-      fills: providers.map(p => PROVIDER_COLORS[p.provider_id] || '#8b8b9e'),
-      strokeWidth: 0,
-    }],
-    legend: { position: 'bottom', item: { label: { fontSize: 11, color: textColor } } },
-    ...baseOpts,
+    series: [
+      donutSeries({
+        angleKey: 'sessions',
+        labelKey: 'provider',
+        fills: providers.map(p => PROVIDER_COLORS[p.provider_id] || '#8b8b9e'),
+        centerTitle: 'sessions',
+        centerValue: formatNumber(totalProviderSessions),
+        resolved,
+      }),
+    ],
+    legend: { enabled: false },
   } : null;
 
   const activeLabel = providerFilter === 'all' ? 'All Providers' : (PROVIDER_LABELS[providerFilter] || providerFilter);
@@ -256,16 +320,21 @@ export default function AnalyticsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg font-semibold tracking-tight">Analytics</h1>
         {providers.length > 1 && (
-          <Tabs value={providerFilter} onValueChange={(v) => { setProviderFilter(v); setLoading(true); }}>
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              {providers.map((p) => (
-                <TabsTrigger key={p.provider_id} value={p.provider_id}>
-                  {PROVIDER_LABELS[p.provider_id] || p.provider_id}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          <FilterSelect
+            label="Provider"
+            value={providerFilter}
+            onChange={(v) => { setProviderFilter(v); setLoading(true); }}
+            options={[
+              { value: 'all', label: 'All providers' } as FilterOption,
+              ...providers.map((p) => ({
+                value: p.provider_id,
+                label: PROVIDER_LABELS[p.provider_id] || p.provider_id,
+                color: PROVIDER_COLORS[p.provider_id],
+                hint: `${p.sessions}`,
+              })),
+            ]}
+            align="end"
+          />
         )}
       </div>
 
