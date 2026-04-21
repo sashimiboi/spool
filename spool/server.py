@@ -1120,6 +1120,109 @@ async def api_settings_agents():
     }
 
 
+@app.get("/api/connectors")
+async def api_connectors_list():
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT id, name, url, transport, status, last_error, last_checked_at, created_at,
+                      CASE WHEN auth_header IS NOT NULL AND auth_header <> '' THEN true ELSE false END AS has_auth
+               FROM mcp_connectors ORDER BY created_at ASC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/api/connectors")
+async def api_connectors_upsert(body: dict):
+    cid = str(body.get("id") or "").strip()
+    name = str(body.get("name") or "").strip()
+    url = str(body.get("url") or "").strip()
+    auth_header = str(body.get("auth_header") or "").strip() or None
+    transport = str(body.get("transport") or "streamable-http").strip()
+    if not cid or not name or not url:
+        return JSONResponse({"error": "id, name, and url are required"}, status_code=400)
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO mcp_connectors (id, name, url, auth_header, transport, status)
+               VALUES (%s, %s, %s, %s, %s, 'disconnected')
+               ON CONFLICT (id) DO UPDATE SET
+                 name = EXCLUDED.name,
+                 url = EXCLUDED.url,
+                 auth_header = COALESCE(EXCLUDED.auth_header, mcp_connectors.auth_header),
+                 transport = EXCLUDED.transport""",
+            (cid, name, url, auth_header, transport),
+        )
+        conn.commit()
+        return {"ok": True, "id": cid}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/connectors/{connector_id}")
+async def api_connectors_delete(connector_id: str):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM mcp_connectors WHERE id = %s", (connector_id,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.post("/api/connectors/{connector_id}/test")
+async def api_connectors_test(connector_id: str):
+    import httpx as _httpx
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT url, auth_header FROM mcp_connectors WHERE id = %s", (connector_id,)
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if row.get("auth_header"):
+            headers["Authorization"] = row["auth_header"]
+
+        # Minimal MCP initialize handshake over streamable-HTTP. A 2xx response
+        # with a session id or a valid JSON-RPC initialize result means the
+        # server is reachable and the auth header (if any) was accepted.
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "spool", "version": "0.1.0"},
+            },
+        }
+        try:
+            async with _httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(row["url"], headers=headers, json=payload)
+            ok = 200 <= resp.status_code < 300
+            err = None if ok else f"HTTP {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            ok = False
+            err = str(e)[:300]
+
+        conn.execute(
+            "UPDATE mcp_connectors SET status = %s, last_error = %s, last_checked_at = now() WHERE id = %s",
+            ("connected" if ok else "error", err, connector_id),
+        )
+        conn.commit()
+        return {"ok": ok, "error": err}
+    finally:
+        conn.close()
+
+
 @app.get("/api/settings/check-ollama")
 async def api_check_ollama():
     """Check if Ollama is running and what models are available."""

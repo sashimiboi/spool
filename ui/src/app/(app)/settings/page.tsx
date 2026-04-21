@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { CheckCircle, XCircle, Server, Key, Cpu, Code, Bot, Scale, Plug, Terminal, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchApi, postApi } from '@/lib/api';
+import ConnectorsPanel from '@/components/ConnectorsPanel';
 
 interface Settings {
   provider: string;
@@ -414,6 +415,9 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {/* Agent connectors */}
+      <ConnectorsPanel />
+
       {/* Editor preference */}
       <EditorPreference />
     </div>
