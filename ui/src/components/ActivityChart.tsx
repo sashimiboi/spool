@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { AgCharts } from 'ag-charts-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Card, CardContent } from '@/components/ui/card';
+import { baseChartOptions, categoryAxis, getChartTokens } from '@/lib/agChartTheme';
 
 type Mode = 'messages' | 'toolCalls' | 'tokens' | 'cost';
 
@@ -40,10 +41,11 @@ export default function ActivityChart({ data, days, onDaysChange, height = 320 }
   const { resolved } = useTheme();
   const [mode, setMode] = useState<Mode>('messages');
 
-  const isDark = resolved === 'dark';
-  const textColor = isDark ? '#8b8b9e' : '#6b6b80';
-  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-  const stroke = mode === 'cost' ? '#10b981' : '#8b7cf6';
+  const t = getChartTokens(resolved);
+  const base = baseChartOptions(resolved);
+  // Cost gets a distinct green to visually separate from volume metrics;
+  // every other mode uses the canonical hero color.
+  const stroke = mode === 'cost' ? '#10b981' : t.hero;
   const fill = stroke;
 
   const chartData = useMemo(
@@ -80,9 +82,8 @@ export default function ActivityChart({ data, days, onDaysChange, height = 320 }
   };
 
   const options: any = {
+    ...base,
     data: chartData,
-    background: { fill: 'transparent' },
-    padding: { top: 12, right: 16, bottom: 8, left: 8 },
     series: [
       {
         type: 'line',
@@ -96,7 +97,7 @@ export default function ActivityChart({ data, days, onDaysChange, height = 320 }
           shape: 'circle',
           size: 5,
           fill: stroke,
-          stroke: isDark ? '#0b0b0f' : '#ffffff',
+          stroke: t.markerStroke,
           strokeWidth: 1.5,
         },
         interpolation: { type: 'smooth' },
@@ -121,27 +122,21 @@ export default function ActivityChart({ data, days, onDaysChange, height = 320 }
     ],
     axes: [
       {
+        ...categoryAxis(resolved),
         type: 'time',
-        position: 'bottom',
         label: {
           fontSize: 10,
-          color: textColor,
+          color: t.text,
           format: '%b %d',
         },
-        tick: { stroke: 'transparent' },
-        line: { stroke: gridColor },
       },
       {
         type: 'number',
         position: 'left',
-        label: {
-          fontSize: 10,
-          color: textColor,
-          formatter: (p: any) => formatValue(p.value),
-        },
+        label: { fontSize: 10, color: t.text, formatter: (p: any) => formatValue(p.value) },
         tick: { stroke: 'transparent' },
         line: { stroke: 'transparent' },
-        gridLine: { style: [{ stroke: gridColor, lineDash: [2, 4] }] },
+        gridLine: { style: [{ stroke: t.grid, lineDash: [2, 4] }] },
       },
     ],
     legend: { enabled: false },

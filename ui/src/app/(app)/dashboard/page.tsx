@@ -8,6 +8,7 @@ import { ModuleRegistry, AllCommunityModule } from 'ag-charts-community';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/components/ThemeProvider';
 import { fetchApi, formatNumber, formatCost, formatDate, cleanProject } from '@/lib/api';
+import { baseChartOptions, categoryAxis, valueAxis, getChartTokens } from '@/lib/agChartTheme';
 import {
   MessageSquare, Wrench, Coins, FolderOpen, Hash, Activity,
 } from 'lucide-react';
@@ -103,7 +104,8 @@ export default function DashboardPage() {
     );
   }
 
-  const isDark = resolved === 'dark';
+  const tokens = getChartTokens(resolved);
+  const base = baseChartOptions(resolved);
   const s = overview.summary;
   const totalTokens = (s.total_input_tokens || 0) + (s.total_output_tokens || 0);
 
@@ -116,23 +118,29 @@ export default function DashboardPage() {
     { label: 'Projects', value: overview.projects.length, icon: FolderOpen },
   ];
 
+  // Stacked: messages (hero) on top of tool calls (muted). Direct-labeled via
+  // tooltip on hover — the shared tokens pick up light/dark automatically.
   const chartOptions: any = {
+    ...base,
     data: daily.map(d => ({
       day: new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       messages: d.messages,
       toolCalls: d.tool_calls,
     })),
     series: [
-      { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', fill: isDark ? '#8b7cf6' : '#7c5cfc', cornerRadius: 3 },
-      { type: 'bar', xKey: 'day', yKey: 'toolCalls', yName: 'Tool Calls', fill: isDark ? '#3f3f50' : '#d4d4d8', cornerRadius: 3 },
+      { type: 'bar', xKey: 'day', yKey: 'toolCalls', yName: 'Tool Calls', stacked: true, fill: tokens.muted, cornerRadius: 2 },
+      { type: 'bar', xKey: 'day', yKey: 'messages', yName: 'Messages', stacked: true, fill: tokens.hero, cornerRadius: 3 },
     ],
-    axes: [
-      { type: 'category', position: 'bottom', label: { fontSize: 10, color: isDark ? '#6b6b80' : '#8b8b9e' } },
-      { type: 'number', position: 'left', label: { fontSize: 10, color: isDark ? '#6b6b80' : '#8b8b9e' }, gridLine: { style: [{ stroke: isDark ? '#2a2a3c' : '#f0f0f2' }] } },
-    ] as any,
-    legend: { position: 'bottom', item: { label: { fontSize: 11, color: isDark ? '#8b8b9e' : '#6b7280' } } },
-    background: { fill: 'transparent' },
-    padding: { top: 10, right: 10, bottom: 0, left: 0 },
+    axes: [categoryAxis(resolved), valueAxis(resolved, { formatter: (p: any) => formatNumber(p.value) })],
+    legend: {
+      position: 'bottom',
+      spacing: 16,
+      item: {
+        marker: { size: 8, shape: 'square' },
+        label: { fontSize: 11, color: tokens.text },
+        paddingX: 12,
+      },
+    },
   };
 
   return (
