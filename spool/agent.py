@@ -105,29 +105,49 @@ def _get_provider() -> str:
     return "ollama"
 
 
-async def chat(messages: list[dict], provider: str | None = None) -> str:
-    """Send messages to the configured LLM and return the response."""
+async def chat(messages: list[dict], provider: str | None = None) -> dict:
+    """Send messages to the configured LLM.
+
+    Returns a dict with the assistant `response` and the retrieved `sources`
+    (the RAG chunks fed into the prompt), so the UI can show what the agent
+    actually had in context when answering.
+    """
     config = _get_config()
     prov = provider or _get_provider()
 
-    # Build context from the latest user message
     user_msg = ""
     for m in reversed(messages):
         if m["role"] == "user":
             user_msg = m["content"]
             break
 
+    sources = semantic_search(user_msg, limit=6) if user_msg else []
     context = _build_context(user_msg) if user_msg else ""
 
-    # Build final messages with system prompt + context
     system = SYSTEM_PROMPT
     if context:
         system += f"\n\n---\n\n{context}"
 
     if prov == "anthropic":
-        return await _chat_anthropic(system, messages, config)
+        response = await _chat_anthropic(system, messages, config)
     else:
-        return await _chat_ollama(system, messages, config)
+        response = await _chat_ollama(system, messages, config)
+
+    return {
+        "response": response,
+        "sources": [
+            {
+                "session_id": s["session_id"],
+                "project": s.get("project"),
+                "role": s.get("role"),
+                "timestamp": s.get("timestamp"),
+                "similarity": s.get("similarity"),
+                "title": s.get("title"),
+                "excerpt": (s.get("content") or "")[:200],
+            }
+            for s in sources
+        ],
+    }
 
 
 async def _chat_anthropic(system: str, messages: list[dict], config: dict) -> str:

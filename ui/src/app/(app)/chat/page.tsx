@@ -5,13 +5,24 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare, ChevronDown, FileText } from 'lucide-react';
 import { fetchApi, postApi, deleteApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+
+interface Source {
+  session_id: string;
+  project?: string | null;
+  role?: string | null;
+  timestamp?: string | null;
+  similarity?: number | null;
+  title?: string | null;
+  excerpt?: string | null;
+}
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  sources?: Source[];
 }
 
 interface ChatSession {
@@ -92,7 +103,7 @@ export default function ChatPage() {
         messages: newMessages,
         chat_session_id: chatSessionId,
       });
-      setMessages([...newMessages, { role: 'assistant', content: data.response }]);
+      setMessages([...newMessages, { role: 'assistant', content: data.response, sources: data.sources }]);
       if (data.chat_session_id) {
         setChatSessionId(data.chat_session_id);
       }
@@ -244,25 +255,28 @@ export default function ChatPage() {
           )}
 
           {messages.map((m, i) => (
-            <div key={i} className={`flex gap-2.5 ${m.role === 'user' ? 'justify-end' : ''}`}>
+            <div key={i} className={`flex gap-2.5 min-w-0 ${m.role === 'user' ? 'justify-end' : ''}`}>
               {m.role === 'assistant' && (
                 <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                   <Bot className="h-3.5 w-3.5 text-primary" />
                 </div>
               )}
-              <div className={`max-w-[75%] ${
+              <div className={`min-w-0 max-w-[75%] ${
                 m.role === 'user'
                   ? 'bg-primary text-primary-foreground rounded-xl rounded-br-sm px-3 py-2'
                   : 'bg-secondary rounded-xl rounded-bl-sm px-3 py-2'
               }`}>
                 {m.role === 'user' ? (
-                  <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
+                  <div className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ overflowWrap: 'anywhere' }}>{m.content}</div>
                 ) : (
-                  <div className="text-[13px] leading-relaxed prose prose-sm max-w-none dark:prose-invert prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-background prose-pre:text-[11px] prose-code:text-[11px] prose-code:bg-background prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:mt-2 prose-headings:mb-1 prose-headings:text-[13px] prose-headings:font-semibold prose-a:text-primary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {m.content || ''}
-                    </ReactMarkdown>
-                  </div>
+                  <>
+                    <div className="text-[13px] leading-relaxed prose prose-sm max-w-none dark:prose-invert break-words prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-background prose-pre:text-[11px] prose-pre:overflow-x-auto prose-pre:whitespace-pre prose-code:text-[11px] prose-code:bg-background prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-code:break-words prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:mt-2 prose-headings:mb-1 prose-headings:text-[13px] prose-headings:font-semibold prose-a:text-primary prose-table:text-[12px] prose-th:font-semibold prose-td:py-1 prose-th:py-1">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {m.content || ''}
+                      </ReactMarkdown>
+                    </div>
+                    {m.sources && m.sources.length > 0 && <SourcesDisclosure sources={m.sources} />}
+                  </>
                 )}
               </div>
               {m.role === 'user' && (
@@ -304,6 +318,52 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SourcesDisclosure({ sources }: { sources: Source[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 border-t border-border/50 pt-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+        <FileText className="h-3 w-3" />
+        <span>
+          {sources.length} source{sources.length === 1 ? '' : 's'} from your sessions
+        </span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          {sources.map((s, idx) => (
+            <div key={`${s.session_id}-${idx}`} className="rounded-md border border-border/60 bg-background/60 p-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {s.role && <span className="uppercase tracking-wider">{s.role}</span>}
+                  {s.project && <span className="truncate">{s.project}</span>}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
+                  {typeof s.similarity === 'number' && (
+                    <span>{(s.similarity * 100).toFixed(0)}%</span>
+                  )}
+                  {s.timestamp && <span>{s.timestamp.slice(0, 10)}</span>}
+                </div>
+              </div>
+              {s.excerpt && (
+                <div className="mt-1 text-[11px] text-foreground/80 leading-relaxed line-clamp-3 break-words">
+                  {s.excerpt}
+                </div>
+              )}
+              <div className="mt-1 text-[10px] text-muted-foreground font-mono truncate">
+                {s.session_id}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

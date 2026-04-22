@@ -855,7 +855,9 @@ async def api_chat(body: ChatRequest):
     import uuid
     from spool.agent import chat
 
-    response = await chat(body.messages, provider=body.provider)
+    chat_out = await chat(body.messages, provider=body.provider)
+    response = chat_out["response"]
+    sources = chat_out.get("sources", [])
 
     # Persist chat session
     conn = get_connection()
@@ -900,7 +902,7 @@ async def api_chat(body: ChatRequest):
     conn.commit()
     conn.close()
 
-    return {"response": response, "chat_session_id": session_id}
+    return {"response": response, "chat_session_id": session_id, "sources": sources}
 
 
 # --- Chat Session History ---

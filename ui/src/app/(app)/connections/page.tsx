@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { CheckCircle, XCircle, Plus, Info, RefreshCw } from 'lucide-react';
 import { fetchApi, postApi, deleteApi } from '@/lib/api';
+import { toast } from 'sonner';
 
 interface Provider {
   id: string; name: string; type: string; status: string;
@@ -60,35 +61,70 @@ export default function ConnectionsPage() {
 
   const connect = async () => {
     if (!selectedType) return;
-    await postApi('/api/providers', { type: selectedType.type, data_path: customPath || selectedType.default_path });
+    const providerName = selectedType.name;
+    const providerType = selectedType.type;
+    try {
+      await postApi('/api/providers', { type: providerType, data_path: customPath || selectedType.default_path });
+    } catch (e) {
+      console.error(e);
+      toast.error(`Failed to connect ${providerName}`);
+      return;
+    }
+    toast.success(`Connected ${providerName}`);
     setModalOpen(false); setSelectedType(null); setCustomPath('');
     // Auto-sync the newly connected provider
-    setSyncing(s => ({ ...s, [selectedType.type]: true }));
+    setSyncing(s => ({ ...s, [providerType]: true }));
     await load();
+    const syncToast = toast.loading(`Syncing ${providerName}...`);
     try {
-      await postApi(`/api/providers/${selectedType.type}/sync`, {});
+      await postApi(`/api/providers/${providerType}/sync`, {});
       await load();
-    } catch (e) { console.error(e); }
-    finally { setSyncing(s => ({ ...s, [selectedType.type]: false })); }
+      toast.success(`${providerName} synced`, { id: syncToast });
+    } catch (e) {
+      console.error(e);
+      toast.error(`Failed to sync ${providerName}`, { id: syncToast });
+    }
+    finally { setSyncing(s => ({ ...s, [providerType]: false })); }
   };
 
-  const disconnect = async (id: string) => { await deleteApi(`/api/providers/${id}`); load(); };
+  const disconnect = async (id: string) => {
+    const name = providers.find(p => p.id === id)?.name ?? 'provider';
+    try {
+      await deleteApi(`/api/providers/${id}`);
+      toast.success(`Disconnected ${name}`);
+      load();
+    } catch (e) {
+      console.error(e);
+      toast.error(`Failed to disconnect ${name}`);
+    }
+  };
 
   const syncProvider = async (id: string) => {
+    const name = providers.find(p => p.id === id)?.name ?? 'provider';
     setSyncing(s => ({ ...s, [id]: true }));
+    const t = toast.loading(`Syncing ${name}...`);
     try {
       await postApi(`/api/providers/${id}/sync`, {});
       await load();
-    } catch (e) { console.error(e); }
+      toast.success(`${name} synced`, { id: t });
+    } catch (e) {
+      console.error(e);
+      toast.error(`Failed to sync ${name}`, { id: t });
+    }
     finally { setSyncing(s => ({ ...s, [id]: false })); }
   };
 
   const syncAll = async () => {
     setSyncingAll(true);
+    const t = toast.loading('Syncing all providers...');
     try {
       await postApi('/api/sync', { embed: false });
       await load();
-    } catch (e) { console.error(e); }
+      toast.success('All providers synced', { id: t });
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to sync providers', { id: t });
+    }
     finally { setSyncingAll(false); }
   };
 

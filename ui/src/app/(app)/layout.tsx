@@ -3,9 +3,12 @@
 import AppNavigation from '@/components/AppNavigation';
 import ModelHealthBanner from '@/components/ModelHealthBanner';
 import { useState } from 'react';
+import { Toaster } from 'sonner';
+import { useTheme } from '@/components/ThemeProvider';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { resolved } = useTheme();
 
   return (
     <div className="flex min-h-screen">
@@ -14,6 +17,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <ModelHealthBanner />
         {children}
       </main>
+      <Toaster
+        theme={resolved}
+        position="bottom-right"
+        richColors
+        closeButton
+      />
     </div>
   );
 }

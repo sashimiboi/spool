@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { ArrowLeft, ArrowUp, ArrowDown, Copy, Check, Search, X, ExternalLink, Activity } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ArrowDown, Copy, Check, Search, X, ExternalLink, Activity, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community';
 import { useTheme } from '@/components/ThemeProvider';
 import { getGridTheme } from '@/lib/agGridTheme';
-import { fetchApi, formatCost, formatDate, cleanProject } from '@/lib/api';
+import { fetchApi, postApi, formatCost, formatDate, cleanProject } from '@/lib/api';
+import { toast } from 'sonner';
 import { MessageContent, ToolBadges, ToolCallList, type ToolCallInfo } from '@/lib/messageParser';
 import { highlightLines, getLangFromPath, type HighlightedLine } from '@/lib/highlight';
 
@@ -652,6 +653,7 @@ export default function SessionsPage() {
   const [search, setSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('all');
+  const [resyncing, setResyncing] = useState(false);
 
   const copyId = useCallback((id: string) => {
     navigator.clipboard.writeText(id);
@@ -667,6 +669,20 @@ export default function SessionsPage() {
   }, []);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  const resync = useCallback(async () => {
+    setResyncing(true);
+    const t = toast.loading('Syncing all providers...');
+    try {
+      await postApi('/api/sync', { embed: false });
+      await fetchSessions();
+      toast.success('Sessions refreshed', { id: t });
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to sync', { id: t });
+    }
+    finally { setResyncing(false); }
+  }, [fetchSessions]);
 
   const openSession = useCallback(async (id: string) => {
     try { setSelected(await fetchApi(`/api/session/${id}`)); }
@@ -763,11 +779,17 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Sessions</h1>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          {filteredSessions.length} of {sessions.length}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {filteredSessions.length} of {sessions.length}
+          </span>
+          <Button variant="outline" size="sm" onClick={resync} disabled={resyncing}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${resyncing ? 'animate-spin' : ''}`} />
+            {resyncing ? 'Syncing...' : 'Resync'}
+          </Button>
+        </div>
       </div>
 
       {/* Filter toolbar */}

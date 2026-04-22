@@ -493,7 +493,7 @@ def ui():
     _check_ollama_preflight()
 
     api_proc = subprocess.Popen(
-        ["python3", "-m", "uvicorn", "spool.server:app", "--host", "127.0.0.1", "--port", "3002", "--log-level", "warning"],
+        [sys.executable, "-m", "uvicorn", "spool.server:app", "--host", "127.0.0.1", "--port", "3002", "--log-level", "warning"],
     )
 
     mcp_proc = subprocess.Popen(
@@ -507,6 +507,11 @@ def ui():
     finally:
         api_proc.terminate()
         mcp_proc.terminate()
+
+
+from spool.cloud import cloud as _cloud_group, push as _push_cmd
+cli.add_command(_cloud_group)
+cli.add_command(_push_cmd)
 
 
 if __name__ == "__main__":
