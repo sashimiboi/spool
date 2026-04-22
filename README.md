@@ -65,6 +65,52 @@ Open **http://localhost:3003** and you're in.
 
 ---
 
+## Connect Spool to your AI coding agent
+
+`spool ui` automatically exposes an MCP server at `http://127.0.0.1:3004/mcp` (HTTP streamable transport). Any MCP-speaking agent can connect to it and pull context from your local KB mid-conversation. The agent gets tools like `spool_search`, `spool_recent_sessions`, `spool_get_session`, `spool_workspace_stats`, and `spool_top_projects`.
+
+### Claude Code
+
+```bash
+claude mcp add spool http://127.0.0.1:3004/mcp --transport http
+claude mcp list   # confirm "spool: ... ✓ Connected"
+```
+
+Then in any Claude Code session, type `/mcp` to see the registered tools. Try:
+
+> *"Use spool_search to find anything in my sessions about the auth refactor."*
+
+> *"Summarize what I worked on this week with spool_recent_sessions."*
+
+### Cursor / Windsurf / Codex / Antigravity
+
+Edit your client's MCP config (usually `~/.cursor/mcp.json`, `~/.codeium/windsurf/mcp_config.json`, or the equivalent) and add:
+
+```json
+{
+  "mcpServers": {
+    "spool": {
+      "type": "http",
+      "url": "http://127.0.0.1:3004/mcp"
+    }
+  }
+}
+```
+
+Restart the client. The `spool` server and its tools should appear in the MCP panel.
+
+### Generic JSON-RPC smoke test
+
+```bash
+curl -s http://127.0.0.1:3004/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq
+```
+
+Should return the five `spool_*` tools. If you get "connection refused", `spool ui` is not running (or its ports got squatted, run `lsof -ti :3004 | xargs kill -9` and retry).
+
+---
+
 ## CLI Usage
 
 All CLI commands require the venv to be active and the database running.
