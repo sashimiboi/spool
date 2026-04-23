@@ -202,6 +202,99 @@ spool mcp --stdio      # stdio transport, for stdio-only clients
 
 ---
 
+## Spooling Cloud (optional)
+
+By default Spool stays 100% local. If you also want your sessions in the
+hosted workspace at [spooling.ai](https://spooling.ai) (so teammates can
+search the same pool, or you can chat with sessions from any browser),
+the CLI ships with a `spool cloud` subcommand.
+
+### One-time setup
+
+1. Mint an API key in the GUI at `app.spooling.ai/settings/api-keys`
+   (looks like `sk_live_...`).
+2. Save it locally:
+
+   ```bash
+   spool cloud login --key sk_live_...
+   ```
+
+   The key is stored at `~/.config/spool/cloud.json` with `0600` perms.
+   You can override the API base with `--api-url` or the
+   `SPOOL_CLOUD_URL` env var (default: `https://api.spooling.ai`).
+
+### Push once
+
+Send the most recent local sessions up to the cloud:
+
+```bash
+spool push                 # 100 sessions, batches of 20
+spool push --limit 500     # bigger backfill
+```
+
+The server upserts by session id, so re-running is safe.
+
+### Watch (continuous push)
+
+Stream new and updated sessions to the cloud on a timer. Stop with
+Ctrl+C.
+
+```bash
+spool cloud watch                 # every 60s, 1000 sessions/cycle
+spool cloud watch --interval 30   # tighter cadence
+spool cloud watch --lookback 60   # widen the overlap window if you edit old sessions
+```
+
+What it does each cycle:
+
+1. Reads `last_push_at` from `~/.config/spool/cloud.json`.
+2. Queries local sessions where `started_at >= last_push_at - lookback`
+   (default lookback: 10 minutes, so messages appended to an in-progress
+   session get re-uploaded).
+3. POSTs to `/v1/sessions/batch` in chunks of `--batch` (default 20).
+4. Advances `last_push_at` to the cycle start on success.
+
+Cycles with no new work are silent. If a push fails the watermark is
+not advanced, so the next cycle retries the same window.
+
+### Status / logout
+
+```bash
+spool cloud status   # show what is in the cloud + stored API base
+spool cloud logout   # remove the stored API key
+```
+
+### Auto-start at login (macOS)
+
+Run `spool cloud watch` as a launchd agent so it survives reboots:
+
+```bash
+cat > ~/Library/LaunchAgents/ai.spooling.cloud-watch.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key><string>ai.spooling.cloud-watch</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/spool</string>
+      <string>cloud</string>
+      <string>watch</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/tmp/spool-cloud-watch.log</string>
+    <key>StandardErrorPath</key><string>/tmp/spool-cloud-watch.log</string>
+  </dict>
+</plist>
+PLIST
+launchctl load ~/Library/LaunchAgents/ai.spooling.cloud-watch.plist
+```
+
+(Adjust the `spool` path with `which spool` if it lives elsewhere.)
+
+---
+
 ## MCP Endpoint
 
 Spool exposes an MCP server so any AI agent can query your session history

@@ -180,11 +180,20 @@ async def _chat_ollama(system: str, messages: list[dict], config: dict) -> str:
     for m in messages:
         ollama_messages.append({"role": m["role"], "content": m["content"]})
 
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=180) as client:
         try:
             resp = await client.post(
                 f"{base_url}/api/chat",
-                json={"model": model, "messages": ollama_messages, "stream": False},
+                json={
+                    "model": model,
+                    "messages": ollama_messages,
+                    "stream": False,
+                    "options": {
+                        "num_ctx": 8192,
+                        "num_predict": 1024,
+                        "temperature": 0.3,
+                    },
+                },
             )
             resp.raise_for_status()
             data = resp.json()

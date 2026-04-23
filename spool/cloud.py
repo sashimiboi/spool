@@ -2,7 +2,9 @@
 
 import json
 import os
-from datetime import datetime
+import signal
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -102,25 +104,31 @@ def cloud_logout():
     console.print("[green]Logged out.[/green]")
 
 
-@click.command()
-@click.option("--limit", default=100, help="Max sessions to push per run")
-@click.option("--batch", default=20, help="Sessions per request")
-def push(limit: int, batch: int):
-    """Push local sessions up to Spooling Cloud."""
-    headers = _auth_headers()
-    base = _api_base()
-
+def _collect_sessions(limit: int, since: datetime | None) -> list[dict]:
+    """Read up to `limit` sessions newer than `since` from the local DB."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT id, provider_id, project, title, cwd, started_at, ended_at,
-                      message_count, tool_call_count,
-                      estimated_input_tokens, estimated_output_tokens, estimated_cost_usd
-               FROM sessions
-               ORDER BY started_at DESC NULLS LAST
-               LIMIT %s""",
-            (limit,),
-        ).fetchall()
+        if since is None:
+            rows = conn.execute(
+                """SELECT id, provider_id, project, title, cwd, started_at, ended_at,
+                          message_count, tool_call_count,
+                          estimated_input_tokens, estimated_output_tokens, estimated_cost_usd
+                   FROM sessions
+                   ORDER BY started_at DESC NULLS LAST
+                   LIMIT %s""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, provider_id, project, title, cwd, started_at, ended_at,
+                          message_count, tool_call_count,
+                          estimated_input_tokens, estimated_output_tokens, estimated_cost_usd
+                   FROM sessions
+                   WHERE started_at IS NULL OR started_at >= %s
+                   ORDER BY started_at DESC NULLS LAST
+                   LIMIT %s""",
+                (since, limit),
+            ).fetchall()
         sessions = []
         for r in rows:
             sid = r["id"]
@@ -154,13 +162,15 @@ def push(limit: int, batch: int):
                     for m in msgs
                 ],
             })
+        return sessions
     finally:
         conn.close()
 
-    if not sessions:
-        console.print("[yellow]No local sessions to push.[/yellow]")
-        return
 
+def _push_batches(sessions: list[dict], batch: int, base: str, headers: dict, log) -> tuple[int, str | None]:
+    """POST sessions to /v1/sessions/batch in chunks. Returns (accepted, error)."""
+    if not sessions:
+        return 0, None
     total = 0
     with httpx.Client(timeout=60) as client:
         for i in range(0, len(sessions), batch):
@@ -170,12 +180,89 @@ def push(limit: int, batch: int):
                 r.raise_for_status()
                 data = r.json()
                 total += data.get("accepted", 0)
-                console.print(f"  pushed {data.get('accepted', 0)} sessions")
+                log(f"  pushed {data.get('accepted', 0)} sessions")
             except httpx.HTTPStatusError as e:
-                console.print(f"[red]HTTP {e.response.status_code}: {e.response.text[:200]}[/red]")
-                return
+                return total, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
             except Exception as e:
-                console.print(f"[red]Error: {e}[/red]")
-                return
+                return total, str(e)
+    return total, None
 
+
+@click.command()
+@click.option("--limit", default=100, help="Max sessions to push per run")
+@click.option("--batch", default=20, help="Sessions per request")
+def push(limit: int, batch: int):
+    """Push local sessions up to Spooling Cloud."""
+    headers = _auth_headers()
+    base = _api_base()
+    sessions = _collect_sessions(limit=limit, since=None)
+    if not sessions:
+        console.print("[yellow]No local sessions to push.[/yellow]")
+        return
+    total, err = _push_batches(sessions, batch, base, headers, console.print)
+    if err:
+        console.print(f"[red]{err}[/red]")
+        return
     console.print(f"[green]Done.[/green] {total} sessions synced to {base}")
+
+
+@cloud.command("watch")
+@click.option("--interval", default=60, show_default=True, help="Seconds between push cycles")
+@click.option("--limit", default=1000, show_default=True, help="Max sessions per cycle")
+@click.option("--batch", default=20, show_default=True, help="Sessions per request")
+@click.option("--lookback", default=10, show_default=True, help="Minutes to overlap on each cycle to catch updated sessions")
+def cloud_watch(interval: int, limit: int, batch: int, lookback: int):
+    """Continuously push new local sessions to Spooling Cloud (Ctrl+C to stop)."""
+    headers = _auth_headers()
+    base = _api_base()
+
+    cfg = _load_config()
+    last = cfg.get("last_push_at")
+    watermark: datetime | None = datetime.fromisoformat(last) if last else None
+
+    stop = {"flag": False}
+    def _handle(_sig, _frm):
+        stop["flag"] = True
+        console.print("\n[yellow]Stopping after current cycle…[/yellow]")
+    signal.signal(signal.SIGINT, _handle)
+    signal.signal(signal.SIGTERM, _handle)
+
+    console.print(f"[cyan]Watching local sessions → {base}[/cyan]")
+    console.print(f"  interval: {interval}s · lookback: {lookback}m · starting watermark: {watermark or 'none (full first push)'}")
+
+    while not stop["flag"]:
+        cycle_started = datetime.now(timezone.utc)
+        # Re-read each cycle so a manual `spool cloud login` change is picked up.
+        headers = _auth_headers()
+        since = (watermark - timedelta(minutes=lookback)) if watermark else None
+
+        try:
+            sessions = _collect_sessions(limit=limit, since=since)
+        except Exception as e:
+            console.print(f"[red]DB error: {e}[/red]")
+            sessions = []
+
+        if sessions:
+            ts = cycle_started.strftime("%H:%M:%S")
+            console.print(f"[dim]{ts}[/dim] {len(sessions)} candidate session(s) since {since or 'beginning'}")
+            total, err = _push_batches(sessions, batch, base, headers, console.print)
+            if err:
+                console.print(f"[red]{err}[/red] (will retry next cycle)")
+            else:
+                # Advance watermark to the cycle start; the lookback window catches
+                # sessions whose started_at slid backwards or whose messages were
+                # appended after the original started_at.
+                watermark = cycle_started
+                cfg = _load_config()
+                cfg["last_push_at"] = watermark.isoformat()
+                _save_config(cfg)
+                console.print(f"  [green]✓[/green] {total} accepted · watermark → {watermark.strftime('%H:%M:%S')}")
+        # else: silent — no new work this cycle.
+
+        # Sleep in 1s slices so Ctrl+C is responsive even with long intervals.
+        slept = 0
+        while slept < interval and not stop["flag"]:
+            time.sleep(1)
+            slept += 1
+
+    console.print("[green]Stopped.[/green]")

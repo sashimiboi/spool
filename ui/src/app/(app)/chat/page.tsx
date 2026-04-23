@@ -5,7 +5,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare, ChevronDown, FileText } from 'lucide-react';
+import { Send, Bot, User, Loader2, Settings, Plus, Trash2, MessageSquare, ChevronDown, FileText, PanelRight, PanelRightClose, Plug, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
 import { fetchApi, postApi, deleteApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
@@ -35,6 +36,16 @@ interface ChatSession {
   updated_at: string;
 }
 
+interface ConnectedProvider {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  icon: string;
+  session_count: number;
+  last_synced_at: string | null;
+}
+
 const SUGGESTIONS = [
   'What did I work on this week?',
   'How much have I spent on Claude?',
@@ -53,7 +64,16 @@ export default function ChatPage() {
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [history, setHistory] = useState<ChatSession[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ConnectedProvider[]>([]);
+  const [rightPaneCollapsed, setRightPaneCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try { const v = localStorage.getItem('spool-chat-rightpane'); if (v === '1') setRightPaneCollapsed(true); } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('spool-chat-rightpane', rightPaneCollapsed ? '1' : '0'); } catch {}
+  }, [rightPaneCollapsed]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -82,6 +102,7 @@ export default function ChatPage() {
       }).catch(() => {});
     });
     loadHistory();
+    fetchApi('/api/providers').then((p) => setProviders(Array.isArray(p) ? p : [])).catch(() => {});
   }, [loadHistory]);
 
   useEffect(() => {
@@ -200,6 +221,7 @@ export default function ChatPage() {
             <h1 className="text-lg font-semibold tracking-tight">Chat</h1>
             <p className="text-[13px] text-muted-foreground">Ask questions about your coding sessions</p>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
           {modelInfo && (
             <button
               onClick={() => router.push('/settings')}
@@ -225,6 +247,16 @@ export default function ChatPage() {
               <Settings className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
             </button>
           )}
+          {rightPaneCollapsed && (
+            <button
+              onClick={() => setRightPaneCollapsed(false)}
+              className="p-1.5 rounded-md border border-border bg-card hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              title="Show sources & tools"
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+          </div>
         </div>
 
         {/* Messages */}
@@ -318,6 +350,60 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {/* Right pane: sources & tools the chat agent can see */}
+      {!rightPaneCollapsed && (
+        <div className="w-64 shrink-0 flex flex-col border-l border-border pl-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Workspace</h3>
+            <button
+              onClick={() => setRightPaneCollapsed(true)}
+              className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              title="Hide pane"
+            >
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto scrollbar-thin space-y-4">
+            <section>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Plug className="h-3 w-3" />
+                  Connected sources <span className="font-normal opacity-70">({providers.length})</span>
+                </div>
+                <Link href="/settings" className="text-[10px] text-primary hover:underline">Manage</Link>
+              </div>
+              {providers.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground py-2">
+                  No sources connected. <Link href="/settings" className="text-primary hover:underline">Add one</Link>.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {providers.map((p) => {
+                    const ok = p.status === 'connected';
+                    return (
+                      <Link key={p.id} href="/settings" className="block">
+                        <div className="rounded-md border border-border bg-card hover:bg-accent/50 transition-colors px-2 py-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${ok ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                            <span className="text-[12px] font-medium truncate flex-1 text-foreground">{p.name}</span>
+                            {!ok && <AlertCircle className="h-3 w-3 text-amber-500 shrink-0" />}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                            {p.session_count} session{p.session_count === 1 ? '' : 's'}
+                            {p.last_synced_at && ` · synced ${new Date(p.last_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
